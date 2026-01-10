@@ -158,8 +158,9 @@ export class App {
       // Handle AIS WebSocket connection
       if (layer === 'ais') {
         if (enabled) {
+          this.map?.setLayerLoading('ais', true);
           initAisStream();
-          this.loadAisSignals();
+          this.waitForAisData();
         } else {
           disconnectAisStream();
         }
@@ -1241,6 +1242,35 @@ export class App {
       this.statusPanel?.updateFeed('Ships', { status: 'error', errorMessage: String(error) });
       this.statusPanel?.updateApi('AISStream', { status: 'error' });
     }
+  }
+
+  private waitForAisData(): void {
+    const maxAttempts = 30;
+    let attempts = 0;
+
+    const checkData = () => {
+      attempts++;
+      const status = getAisStatus();
+
+      if (status.vessels > 0 || status.connected) {
+        this.loadAisSignals();
+        this.map?.setLayerLoading('ais', false);
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        this.map?.setLayerLoading('ais', false);
+        this.statusPanel?.updateFeed('Ships', {
+          status: 'error',
+          errorMessage: 'Connection timeout'
+        });
+        return;
+      }
+
+      setTimeout(checkData, 1000);
+    };
+
+    checkData();
   }
 
   private async loadCableActivity(): Promise<void> {
