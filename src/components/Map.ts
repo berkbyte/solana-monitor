@@ -318,7 +318,7 @@ export class MapComponent {
         </div>
         <div class="layer-help-section">
           <div class="layer-help-title">Transport</div>
-          <div class="layer-help-item"><span>SHIPPING</span> Vessel tracking in chokepoints (Hormuz, Suez)</div>
+          <div class="layer-help-item"><span>SHIPPING</span> Vessels, chokepoints, 61 strategic ports</div>
           <div class="layer-help-item"><span>DELAYS</span> Airport delays and ground stops (FAA)</div>
         </div>
         <div class="layer-help-section">
