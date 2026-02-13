@@ -132,9 +132,22 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'd3': ['d3'],
-          'topojson': ['topojson-client'],
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('/@xenova/transformers/') || id.includes('/onnxruntime-web/')) {
+              return 'ml';
+            }
+            if (id.includes('/@deck.gl/') || id.includes('/maplibre-gl/') || id.includes('/h3-js/')) {
+              return 'map';
+            }
+            if (id.includes('/d3/')) {
+              return 'd3';
+            }
+            if (id.includes('/topojson-client/')) {
+              return 'topojson';
+            }
+          }
+          return undefined;
         },
       },
     },
