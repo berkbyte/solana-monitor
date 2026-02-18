@@ -1,11 +1,11 @@
 /**
- * Social Pulse Service — Bright Data Integration
+ * Social Pulse Service — SocialData.tools Integration
  *
  * Fetches Solana-related social media data from X/Twitter
- * via the /api/x-search Bright Data serverless endpoint.
+ * via the /api/x-search SocialData serverless endpoint.
  *
  * No API key needed on the frontend — the serverless function
- * uses BRIGHTDATA_API_KEY on the backend.
+ * uses SOCIALDATA_API_KEY on the backend.
  */
 
 const CACHE_TTL = 5 * 60_000; // 5 minutes
@@ -51,68 +51,37 @@ export interface SocialPulseData {
 
 let cachedData: SocialPulseData | null = null;
 
-// Pending snapshot for async polling
-let pendingSnapshotId: string | null = null;
-
 /* ------------------------------------------------------------------ */
-/*  Bright Data X search                                               */
+/*  Normalized tweet from /api/x-search                                */
 /* ------------------------------------------------------------------ */
 
-interface BDTweet {
-  id?: string;
-  post_id?: string;
-  tweet_id?: string;
-  text?: string;
-  description?: string;
-  content?: string;
-  body?: string;
-  user_name?: string;
-  author_name?: string;
-  name?: string;
-  user_screen_name?: string;
-  user_handle?: string;
-  screen_name?: string;
-  user_profile_image?: string;
-  avatar?: string;
-  user_followers?: number;
-  followers_count?: number;
-  likes?: number;
-  favorite_count?: number;
-  retweets?: number;
-  retweet_count?: number;
-  replies?: number;
-  reply_count?: number;
-  date?: string;
-  timestamp?: string;
-  created_at?: string;
-  url?: string;
-  tweet_url?: string;
-  post_url?: string;
+interface NormalizedTweet {
+  id: string;
+  text: string;
+  author: string;
+  handle: string;
+  avatar: string;
+  followers: number;
+  likes: number;
+  retweets: number;
+  replies: number;
+  views: number;
+  date: string;
+  url: string;
 }
 
-async function fetchSolanaTweets(): Promise<{ tweets: BDTweet[]; status: string }> {
+async function fetchSolanaTweets(): Promise<{ tweets: NormalizedTweet[]; status: string }> {
   try {
-    const params = pendingSnapshotId
-      ? `q=solana&snapshot_id=${encodeURIComponent(pendingSnapshotId)}`
-      : 'q=solana';
-
-    const res = await fetch(`/api/x-search?${params}`, {
+    const res = await fetch('/api/x-search?q=solana', {
       signal: AbortSignal.timeout(15_000),
     });
 
     const data = await res.json();
 
-    if (res.status === 202 && data.snapshot_id) {
-      pendingSnapshotId = data.snapshot_id;
-      return { tweets: [], status: 'pending' };
-    }
-
     if (res.ok && data.status === 'ready') {
-      pendingSnapshotId = null;
       return { tweets: data.tweets || [], status: 'ready' };
     }
 
-    pendingSnapshotId = null;
     return { tweets: [], status: 'error' };
   } catch (err) {
     console.warn('[SocialPulse] Fetch error:', err);
@@ -120,32 +89,29 @@ async function fetchSolanaTweets(): Promise<{ tweets: BDTweet[]; status: string 
   }
 }
 
-function tweetsToSocialPosts(tweets: BDTweet[]): SocialPost[] {
+function tweetsToSocialPosts(tweets: NormalizedTweet[]): SocialPost[] {
   return tweets.slice(0, 15).map((t): SocialPost => {
-    const likes = t.likes || t.favorite_count || 0;
-    const retweets = t.retweets || t.retweet_count || 0;
-    const replies = t.replies || t.reply_count || 0;
-    const text = (t.text || t.description || t.content || t.body || '').slice(0, 280);
-    const dateStr = t.date || t.timestamp || t.created_at || '';
+    const interactions = (t.likes || 0) + (t.retweets || 0) + (t.replies || 0);
+    const dateStr = t.date || '';
     const ts = dateStr ? Math.floor(new Date(dateStr).getTime() / 1000) : 0;
 
     return {
-      id: String(t.id || t.post_id || t.tweet_id || Math.random()),
-      text,
-      creator: t.user_screen_name || t.user_handle || t.screen_name || 'unknown',
-      creatorDisplayName: t.user_name || t.author_name || t.name || 'Unknown',
-      creatorFollowers: t.user_followers || t.followers_count || 0,
-      creatorProfileImage: t.user_profile_image || t.avatar || '',
-      interactions: likes + retweets + replies,
+      id: t.id || String(Math.random()),
+      text: (t.text || '').slice(0, 280),
+      creator: t.handle || 'unknown',
+      creatorDisplayName: t.author || 'Unknown',
+      creatorFollowers: t.followers || 0,
+      creatorProfileImage: t.avatar || '',
+      interactions,
       sentimentDetail: 3, // neutral default — no sentiment analysis
       postCreated: ts,
-      postUrl: t.url || t.tweet_url || t.post_url || '',
+      postUrl: t.url || '',
       network: 'twitter',
     };
   });
 }
 
-function computeSummaryFromTweets(tweets: BDTweet[]): SocialTopicSummary | null {
+function computeSummaryFromTweets(tweets: NormalizedTweet[]): SocialTopicSummary | null {
   if (tweets.length === 0) return null;
 
   let totalLikes = 0;
@@ -154,11 +120,10 @@ function computeSummaryFromTweets(tweets: BDTweet[]): SocialTopicSummary | null 
   const uniqueAuthors = new Set<string>();
 
   for (const t of tweets) {
-    totalLikes += t.likes || t.favorite_count || 0;
-    totalRetweets += t.retweets || t.retweet_count || 0;
-    totalReplies += t.replies || t.reply_count || 0;
-    const author = t.user_screen_name || t.user_handle || t.screen_name || '';
-    if (author) uniqueAuthors.add(author);
+    totalLikes += t.likes || 0;
+    totalRetweets += t.retweets || 0;
+    totalReplies += t.replies || 0;
+    if (t.handle) uniqueAuthors.add(t.handle);
   }
 
   const totalInteractions = totalLikes + totalRetweets + totalReplies;
@@ -166,9 +131,9 @@ function computeSummaryFromTweets(tweets: BDTweet[]): SocialTopicSummary | null 
   return {
     title: 'Solana',
     socialVolume24h: tweets.length,
-    socialVolumePrev24h: 0, // no previous data from Bright Data
+    socialVolumePrev24h: 0,
     socialDominance: 0,
-    sentiment: 3, // neutral — no sentiment analysis
+    sentiment: 3,
     interactions24h: totalInteractions,
     contributors24h: uniqueAuthors.size,
     postsCount24h: tweets.length,
@@ -186,11 +151,6 @@ export async function fetchSocialPulse(): Promise<SocialPulseData | null> {
   }
 
   const result = await fetchSolanaTweets();
-
-  // If still pending, return previous cache or null
-  if (result.status === 'pending') {
-    return cachedData || null;
-  }
 
   if (result.status === 'error' || result.tweets.length === 0) {
     return cachedData || null;
@@ -210,5 +170,4 @@ export async function fetchSocialPulse(): Promise<SocialPulseData | null> {
 
 export function clearSocialPulseCache(): void {
   cachedData = null;
-  pendingSnapshotId = null;
 }

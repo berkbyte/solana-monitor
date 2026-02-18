@@ -9,7 +9,6 @@ export class TokenAnalyzePanel extends Panel {
   private isLoading = false;
   private history: TokenAnalysis[] = [];
   private tweetResult: CATweetResult | null = null;
-  private tweetPollTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     super({
@@ -108,20 +107,8 @@ export class TokenAnalyzePanel extends Panel {
       }
     }
 
-    // If still pending, set up auto-poll via event
-    if (result.status === 'pending' && result.snapshotId && this.analysis) {
-      this.scheduleTweetPoll(this.analysis.mint);
-    }
-  }
-
-  private scheduleTweetPoll(mint: string): void {
-    if (this.tweetPollTimer) clearTimeout(this.tweetPollTimer);
-    this.tweetPollTimer = setTimeout(() => {
-      this.element.dispatchEvent(new CustomEvent('token-tweets-poll', {
-        detail: { mint },
-        bubbles: true,
-      }));
-    }, 4000);
+    // SocialData API is synchronous — no polling needed
+    // (tweets are returned immediately with 'ready' status)
   }
 
   public setError(msg: string): void {
