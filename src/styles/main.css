@@ -469,6 +469,16 @@ canvas,
   letter-spacing: 0.3px;
 }
 
+/* Open-source label */
+.header-opensource-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
 /* GitHub link */
 .header-github-link {
   display: flex;
@@ -7046,6 +7056,10 @@ a.prediction-link:hover {
   .header-center {
     order: -1;
     margin-bottom: 8px;
+  }
+
+  .header-opensource-label {
+    display: none;
   }
 
   /* Hide non-essential header items */

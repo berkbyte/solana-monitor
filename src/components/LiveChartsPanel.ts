@@ -15,6 +15,7 @@ type ChartMode = 'price' | 'mcap';
 
 const STORAGE_KEY = 'solanaterminal-live-charts';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const TOKEN_MINT = 'HYvUDMu6jwPSiK3X91JjCU91wtrdbuVvjN2QnueCpump';
 
 /* ------------------------------------------------------------------ */
 /*  LiveChartsPanel                                                    */
@@ -51,8 +52,11 @@ export class LiveChartsPanel extends Panel {
       }
     } catch { /* ignore */ }
 
-    // Default: SOL chart (pairAddress resolved async)
-    this.tabs = [{ id: 'sol-default', label: 'SOL / USD', pairAddress: '', ca: SOL_MINT }];
+    // Default: SOL + project token charts (pairAddress resolved async)
+    this.tabs = [
+      { id: 'sol-default', label: 'SOL / USD', pairAddress: '', ca: SOL_MINT },
+      { id: 'token-default', label: 'SOLMON / SOL', pairAddress: '', ca: TOKEN_MINT },
+    ];
     this.activeTabId = 'sol-default';
   }
 
@@ -154,17 +158,15 @@ export class LiveChartsPanel extends Panel {
       label.textContent = tab.label;
       btn.appendChild(label);
 
-      if (this.tabs.length > 1) {
-        const close = document.createElement('span');
-        close.className = 'live-charts-tab-close';
-        close.textContent = '×';
-        close.title = 'Close tab';
-        close.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.closeTab(tab.id);
-        });
-        btn.appendChild(close);
-      }
+      const close = document.createElement('span');
+      close.className = 'live-charts-tab-close';
+      close.textContent = '×';
+      close.title = 'Close tab';
+      close.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeTab(tab.id);
+      });
+      btn.appendChild(close);
 
       btn.addEventListener('click', () => this.switchTab(tab.id));
       this.tabBar.appendChild(btn);
@@ -208,9 +210,11 @@ export class LiveChartsPanel extends Panel {
 
   private closeTab(tabId: string): void {
     const idx = this.tabs.findIndex(t => t.id === tabId);
-    if (idx === -1 || this.tabs.length <= 1) return;
+    if (idx === -1) return;
     this.tabs.splice(idx, 1);
-    if (this.activeTabId === tabId) {
+    if (this.tabs.length === 0) {
+      this.activeTabId = '';
+    } else if (this.activeTabId === tabId) {
       this.activeTabId = this.tabs[Math.min(idx, this.tabs.length - 1)]!.id;
     }
     this.renderTabBar();
@@ -333,6 +337,16 @@ export class LiveChartsPanel extends Panel {
   private renderActiveChart(): void {
     if (!this.chartContainer) return;
     this.chartContainer.innerHTML = '';
+
+    if (this.tabs.length === 0 || !this.activeTabId) {
+      this.chartContainer.innerHTML = `
+        <div class="live-charts-loading" style="flex-direction:column;gap:8px;">
+          <span style="font-size:14px;color:var(--text-dim)">No charts open</span>
+          <span style="font-size:12px;color:var(--text-muted)">Click + to add a chart</span>
+        </div>
+      `;
+      return;
+    }
 
     const tab = this.tabs.find(t => t.id === this.activeTabId);
     if (!tab || !tab.pairAddress) {
