@@ -46,6 +46,10 @@ export class LiveChartsPanel extends Panel {
         const saved: ChartTab[] = JSON.parse(raw);
         if (Array.isArray(saved) && saved.length > 0) {
           this.tabs = saved;
+          // Ensure project token tab exists (added after initial release)
+          if (!this.tabs.some(t => t.ca === TOKEN_MINT)) {
+            this.tabs.splice(1, 0, { id: 'token-default', label: 'SOLMON / SOL', pairAddress: '', ca: TOKEN_MINT });
+          }
           this.activeTabId = saved[0]!.id;
           return;
         }

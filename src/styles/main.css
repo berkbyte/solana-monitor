@@ -226,22 +226,22 @@ canvas,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 20px;
+  padding: 12px 24px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  height: 48px;
+  height: 54px;
   flex-shrink: 0;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
 }
 
 .logo {
   font-weight: bold;
-  font-size: 18px;
+  font-size: 20px;
   letter-spacing: 2.5px;
   color: var(--accent);
 }
@@ -317,13 +317,13 @@ canvas,
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-dim);
 }
 
 .status-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--green);
   animation: pulse-dot 2s infinite;
@@ -408,17 +408,17 @@ canvas,
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 /* X link */
 .header-x-link {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--text-dim);
   text-decoration: none;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.3px;
   transition: color 0.2s;
@@ -434,14 +434,14 @@ canvas,
 .header-ca-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
+  gap: 8px;
+  padding: 6px 14px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   color: var(--text-dim);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
   transition: border-color 0.2s, color 0.2s, background 0.2s;
 }
@@ -459,19 +459,33 @@ canvas,
 }
 .header-ca-label {
   font-weight: 700;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.5px;
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 .header-ca-addr {
   font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0.3px;
+}
+
+/* Pump.fun external link */
+.header-pumpfun-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  transition: color 0.2s;
+  padding: 4px;
+  border-radius: 4px;
+}
+.header-pumpfun-link:hover {
+  color: var(--green);
 }
 
 /* Open-source label */
 .header-opensource-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--green);
   letter-spacing: 0.3px;
@@ -483,10 +497,10 @@ canvas,
 .header-github-link {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--text-dim);
   text-decoration: none;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.3px;
   transition: color 0.2s;
@@ -502,12 +516,12 @@ canvas,
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   color: var(--text-dim);
   cursor: pointer;
   transition: color 0.2s, border-color 0.2s;
