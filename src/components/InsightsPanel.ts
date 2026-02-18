@@ -5,11 +5,6 @@ import { parallelAnalysis, type AnalyzedHeadline } from '@/services/parallel-ana
 import { isMobileDevice } from '@/utils';
 import { escapeHtml } from '@/utils/sanitize';
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
-import {
-  fetchSocialPulse,
-  type SocialPulseData,
-  type SocialPost,
-} from '@/services/social-pulse';
 import type { ClusteredEvent } from '@/types';
 
 export class InsightsPanel extends Panel {
@@ -17,7 +12,6 @@ export class InsightsPanel extends Panel {
   private lastBriefUpdate = 0;
   private cachedBrief: string | null = null;
   private lastMissedStories: AnalyzedHeadline[] = [];
-  private lastSocialPulse: SocialPulseData | null = null;
   private static readonly BRIEF_COOLDOWN_MS = 120000; // 2 min cooldown (API has limits)
   private static readonly BRIEF_CACHE_KEY = 'summary:world-brief';
 
@@ -293,9 +287,6 @@ export class InsightsPanel extends Panel {
       this.setProgress(4, totalSteps, 'Multi-perspective analysis...');
       await parallelPromise;
 
-      // Fetch social pulse data (non-blocking)
-      this.lastSocialPulse = await fetchSocialPulse().catch(() => null);
-
       this.renderInsights(importantClusters, sentiments, worldBrief);
     } catch (error) {
       console.error('[InsightsPanel] Error:', error);
@@ -308,7 +299,6 @@ export class InsightsPanel extends Panel {
     sentiments: Array<{ label: string; score: number }> | null,
     worldBrief: string | null
   ): void {
-    const socialHtml = this.renderSocialPulse();
     const briefHtml = worldBrief ? this.renderWorldBrief(worldBrief) : '';
     const sentimentOverview = this.renderSentimentOverview(sentiments);
     const breakingHtml = this.renderBreakingStories(clusters, sentiments);
@@ -316,7 +306,6 @@ export class InsightsPanel extends Panel {
     const missedHtml = this.renderMissedStories();
 
     this.setContent(`
-      ${socialHtml}
       ${briefHtml}
       ${sentimentOverview}
       ${statsHtml}
@@ -475,125 +464,5 @@ export class InsightsPanel extends Panel {
         ${storiesHtml}
       </div>
     `;
-  }
-
-  /* ====================== SOCIAL PULSE (X / SocialData) ====================== */
-
-  private renderSocialPulse(): string {
-    const data = this.lastSocialPulse;
-    if (!data || (!data.summary && data.posts.length === 0)) {
-      return `
-        <div class="insights-social-pulse">
-          <div class="insights-section-title">𝕏 SOCIAL PULSE</div>
-          <div class="social-empty">No social data yet — will refresh shortly</div>
-        </div>
-      `;
-    }
-
-    const summaryHtml = data.summary ? this.renderSocialSummary(data.summary) : '';
-    const aiHtml = data.aiCommentary ? this.renderAICommentary(data.aiCommentary) : '';
-    const postsHtml = data.posts.length > 0 ? this.renderSocialPosts(data.posts) : '';
-
-    return `
-      <div class="insights-social-pulse">
-        <div class="insights-section-title">𝕏 SOCIAL PULSE</div>
-        ${summaryHtml}
-        ${aiHtml}
-        ${postsHtml}
-      </div>
-    `;
-  }
-
-  private renderAICommentary(commentary: string): string {
-    return `
-      <div class="social-ai-commentary">
-        <div class="social-ai-header">
-          <span class="social-ai-icon">🤖</span>
-          <span class="social-ai-label">AI Social Analysis</span>
-        </div>
-        <div class="social-ai-text">${escapeHtml(commentary)}</div>
-      </div>
-    `;
-  }
-
-  private renderSocialSummary(s: NonNullable<SocialPulseData['summary']>): string {
-    const volChange = s.socialVolumePrev24h > 0
-      ? ((s.socialVolume24h - s.socialVolumePrev24h) / s.socialVolumePrev24h * 100)
-      : 0;
-    const volChangeStr = volChange >= 0 ? `+${volChange.toFixed(0)}%` : `${volChange.toFixed(0)}%`;
-    const volChangeClass = volChange > 10 ? 'positive' : volChange < -10 ? 'negative' : 'neutral';
-
-    const sentimentLabel = s.sentiment >= 4 ? 'Bullish' : s.sentiment >= 3 ? 'Neutral' : 'Bearish';
-    const sentimentClass = s.sentiment >= 4 ? 'positive' : s.sentiment >= 3 ? 'neutral' : 'negative';
-
-    return `
-      <div class="social-summary-grid">
-        <div class="social-metric">
-          <span class="social-metric-value">${this.formatNum(s.postsCount24h)}</span>
-          <span class="social-metric-label">Posts 24h</span>
-        </div>
-        <div class="social-metric">
-          <span class="social-metric-value ${volChangeClass}">${volChangeStr}</span>
-          <span class="social-metric-label">Volume Δ</span>
-        </div>
-        <div class="social-metric">
-          <span class="social-metric-value">${this.formatNum(s.interactions24h)}</span>
-          <span class="social-metric-label">Interactions</span>
-        </div>
-        <div class="social-metric">
-          <span class="social-metric-value ${sentimentClass}">${sentimentLabel}</span>
-          <span class="social-metric-label">Sentiment</span>
-        </div>
-      </div>
-    `;
-  }
-
-  private renderSocialPosts(posts: SocialPost[]): string {
-    const top = posts.slice(0, 6);
-    const postsHtml = top.map(p => {
-      const timeAgo = this.timeAgo(p.postCreated);
-      const sentiment = p.sentimentDetail >= 4 ? 'positive' : p.sentimentDetail <= 2 ? 'negative' : 'neutral';
-      const followersStr = p.creatorFollowers >= 1000
-        ? `${(p.creatorFollowers / 1000).toFixed(p.creatorFollowers >= 100_000 ? 0 : 1)}K`
-        : String(p.creatorFollowers);
-      const interStr = this.formatNum(p.interactions);
-
-      const link = p.postUrl
-        ? `<a href="${escapeHtml(p.postUrl)}" target="_blank" rel="noopener" class="social-post-link">↗</a>`
-        : '';
-
-      return `
-        <div class="social-post">
-          <div class="social-post-header">
-            <span class="social-post-author">@${escapeHtml(p.creator)}</span>
-            <span class="social-post-followers">${followersStr} followers</span>
-            <span class="social-post-time">${timeAgo}</span>
-            ${link}
-          </div>
-          <div class="social-post-text">${escapeHtml(p.text)}</div>
-          <div class="social-post-meta">
-            <span class="social-post-interactions">💬 ${interStr}</span>
-            <span class="insight-sentiment-dot ${sentiment}"></span>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    return `<div class="social-posts-list">${postsHtml}</div>`;
-  }
-
-  private formatNum(n: number): string {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}K`;
-    return String(n);
-  }
-
-  private timeAgo(unixTs: number): string {
-    if (!unixTs) return '';
-    const diff = Math.floor((Date.now() / 1000) - unixTs);
-    if (diff < 60) return 'just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-    return `${Math.floor(diff / 86400)}d`;
   }
 }
