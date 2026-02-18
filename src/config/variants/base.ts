@@ -42,7 +42,6 @@ export const REFRESH_INTERVALS = {
   mev: 60 * 1000,                 // MEV stats: 1 min
   liquidStaking: 5 * 60 * 1000,   // LST data: 5 min
   nft: 5 * 60 * 1000,             // NFT data: 5 min
-  xInsights: 5 * 60 * 1000,        // X Insights: 5 min
   predictions: 5 * 60 * 1000,
   githubTrending: 30 * 60 * 1000,
   hackernews: 5 * 60 * 1000,

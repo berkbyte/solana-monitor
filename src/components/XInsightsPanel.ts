@@ -2,11 +2,9 @@ import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
 import type {
   XInsightsData,
-  TopicMetrics,
+  XInsightsMetrics,
   XSearchResult,
   XTweet,
-  SocialPost,
-  SocialTopicSummary,
 } from '@/services/x-insights';
 
 export class XInsightsPanel extends Panel {
@@ -23,7 +21,7 @@ export class XInsightsPanel extends Panel {
       className: 'x-insights-panel',
       infoTooltip:
         'Real-time X/Twitter intelligence for Solana. ' +
-        'Social metrics via LunarCrush, on-demand keyword search via Bright Data scraper.',
+        'Trending tweets and keyword search powered by Bright Data.',
     });
 
     this.content.innerHTML = this.renderEmpty();
@@ -74,23 +72,46 @@ export class XInsightsPanel extends Panel {
 
   private render(): void {
     const searchBarHtml = this.renderSearchBar();
-    const metricsHtml = this.data?.solana?.summary
-      ? this.renderMetrics(this.data.solana.summary)
+
+    // If user is searching, show search results
+    if (this.searchResults) {
+      this.content.innerHTML = `
+        <div class="xi-container">
+          ${searchBarHtml}
+          ${this.renderSearchResults()}
+        </div>
+      `;
+      this.bindSearchEvents();
+      return;
+    }
+
+    // Auto-feed: pending state
+    if (this.data?.status === 'pending') {
+      this.content.innerHTML = `
+        <div class="xi-container">
+          ${searchBarHtml}
+          <div class="xi-search-pending">
+            <div class="xi-spinner"></div>
+            <span>Scraping X for Solana tweets…</span>
+          </div>
+        </div>
+      `;
+      this.bindSearchEvents();
+      return;
+    }
+
+    // Auto-feed: metrics + trending tweets
+    const metricsHtml = this.data?.metrics
+      ? this.renderMetrics(this.data.metrics)
       : '';
-    const topicsHtml = this.data?.topics && this.data.topics.length > 0
-      ? this.renderTopicRadar(this.data.topics)
+    const postsHtml = this.data?.trending && this.data.trending.length > 0
+      ? this.renderTrendingPosts(this.data.trending)
       : '';
-    const postsHtml = this.searchResults
-      ? this.renderSearchResults()
-      : this.data?.solana?.posts && this.data.solana.posts.length > 0
-        ? this.renderTrendingPosts(this.data.solana.posts)
-        : '';
 
     this.content.innerHTML = `
       <div class="xi-container">
         ${searchBarHtml}
         ${metricsHtml}
-        ${topicsHtml}
         ${postsHtml}
       </div>
     `;
@@ -159,50 +180,37 @@ export class XInsightsPanel extends Panel {
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Social Metrics Grid                                                */
+  /*  Engagement Metrics Grid (computed from Bright Data tweets)         */
   /* ------------------------------------------------------------------ */
 
-  private renderMetrics(s: SocialTopicSummary): string {
-    const volChange = s.socialVolumePrev24h > 0
-      ? ((s.socialVolume24h - s.socialVolumePrev24h) / s.socialVolumePrev24h * 100)
-      : 0;
-    const volStr = volChange >= 0 ? `+${volChange.toFixed(0)}%` : `${volChange.toFixed(0)}%`;
-    const volClass = volChange > 10 ? 'positive' : volChange < -10 ? 'negative' : 'neutral';
-
-    const sentLabel = s.sentiment >= 4 ? 'Bullish' : s.sentiment >= 3 ? 'Neutral' : 'Bearish';
-    const sentClass = s.sentiment >= 4 ? 'positive' : s.sentiment >= 3 ? 'neutral' : 'negative';
-    const sentBar = Math.min(100, (s.sentiment / 5) * 100);
-
-    const domStr = s.socialDominance > 0 ? `${s.socialDominance.toFixed(1)}%` : '—';
-
+  private renderMetrics(m: XInsightsMetrics): string {
     return `
       <div class="xi-section">
-        <div class="xi-section-title">SOLANA SOCIAL PULSE</div>
+        <div class="xi-section-title">SOLANA ON 𝕏</div>
         <div class="xi-metrics-grid">
           <div class="xi-metric">
-            <span class="xi-metric-val">${this.fmtNum(s.postsCount24h)}</span>
-            <span class="xi-metric-lbl">Posts 24h</span>
+            <span class="xi-metric-val">${this.fmtNum(m.tweetCount)}</span>
+            <span class="xi-metric-lbl">Tweets</span>
           </div>
           <div class="xi-metric">
-            <span class="xi-metric-val ${volClass}">${volStr}</span>
-            <span class="xi-metric-lbl">Volume Δ</span>
+            <span class="xi-metric-val">${this.fmtNum(m.totalEngagement)}</span>
+            <span class="xi-metric-lbl">Engagement</span>
           </div>
           <div class="xi-metric">
-            <span class="xi-metric-val">${this.fmtNum(s.interactions24h)}</span>
-            <span class="xi-metric-lbl">Interactions</span>
+            <span class="xi-metric-val">${this.fmtNum(m.totalLikes)}</span>
+            <span class="xi-metric-lbl">Likes</span>
           </div>
           <div class="xi-metric">
-            <span class="xi-metric-val">${this.fmtNum(s.contributors24h)}</span>
-            <span class="xi-metric-lbl">Contributors</span>
+            <span class="xi-metric-val">${this.fmtNum(m.totalRetweets)}</span>
+            <span class="xi-metric-lbl">Retweets</span>
           </div>
           <div class="xi-metric">
-            <span class="xi-metric-val ${sentClass}">${sentLabel}</span>
-            <div class="xi-sent-bar"><div class="xi-sent-fill ${sentClass}" style="width:${sentBar}%"></div></div>
-            <span class="xi-metric-lbl">Sentiment</span>
+            <span class="xi-metric-val">${this.fmtNum(m.totalReplies)}</span>
+            <span class="xi-metric-lbl">Replies</span>
           </div>
           <div class="xi-metric">
-            <span class="xi-metric-val">${domStr}</span>
-            <span class="xi-metric-lbl">Dominance</span>
+            <span class="xi-metric-val">${this.fmtNum(m.topReach)}</span>
+            <span class="xi-metric-lbl">Top Reach</span>
           </div>
         </div>
       </div>
@@ -210,49 +218,12 @@ export class XInsightsPanel extends Panel {
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Topic Radar                                                        */
+  /*  Trending Posts (Bright Data auto-feed)                             */
   /* ------------------------------------------------------------------ */
 
-  private renderTopicRadar(topics: TopicMetrics[]): string {
-    const sorted = [...topics].sort((a, b) => b.interactions24h - a.interactions24h);
-    const maxInteractions = sorted[0]?.interactions24h || 1;
-
-    const rows = sorted.map(t => {
-      const barW = Math.max(4, (t.interactions24h / maxInteractions) * 100);
-      const sent = t.sentiment >= 4 ? 'positive' : t.sentiment >= 3 ? 'neutral' : 'negative';
-      const volStr = t.volumeChange >= 0 ? `+${t.volumeChange.toFixed(0)}%` : `${t.volumeChange.toFixed(0)}%`;
-      const volClass = t.volumeChange > 15 ? 'positive' : t.volumeChange < -15 ? 'negative' : 'neutral';
-      const isSolana = t.topic === 'solana';
-
-      return `
-        <div class="xi-topic-row ${isSolana ? 'xi-topic-highlight' : ''}">
-          <div class="xi-topic-name">${escapeHtml(t.label)}</div>
-          <div class="xi-topic-bar-wrap">
-            <div class="xi-topic-bar ${sent}" style="width:${barW}%"></div>
-          </div>
-          <div class="xi-topic-stats">
-            <span class="xi-topic-posts">${this.fmtNum(t.posts24h)}</span>
-            <span class="xi-topic-vol ${volClass}">${volStr}</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    return `
-      <div class="xi-section">
-        <div class="xi-section-title">TOPIC RADAR</div>
-        <div class="xi-topic-list">${rows}</div>
-      </div>
-    `;
-  }
-
-  /* ------------------------------------------------------------------ */
-  /*  Trending Posts (LunarCrush)                                        */
-  /* ------------------------------------------------------------------ */
-
-  private renderTrendingPosts(posts: SocialPost[]): string {
-    const top = posts.slice(0, 8);
-    const html = top.map(p => this.renderLCPost(p)).join('');
+  private renderTrendingPosts(tweets: XTweet[]): string {
+    const top = tweets.slice(0, 15);
+    const html = top.map(t => this.renderTweet(t)).join('');
 
     return `
       <div class="xi-section">
@@ -262,27 +233,27 @@ export class XInsightsPanel extends Panel {
     `;
   }
 
-  private renderLCPost(p: SocialPost): string {
-    const timeAgo = this.timeAgo(p.postCreated);
-    const sent = p.sentimentDetail >= 4 ? 'positive' : p.sentimentDetail <= 2 ? 'negative' : 'neutral';
-    const followersStr = this.fmtNum(p.creatorFollowers);
-    const link = p.postUrl
-      ? `<a href="${escapeHtml(p.postUrl)}" target="_blank" rel="noopener" class="xi-post-link" title="View on X">↗</a>`
+  private renderTweet(t: XTweet): string {
+    const dateStr = t.date ? this.formatDate(t.date) : '';
+    const followersStr = this.fmtNum(t.followers);
+    const link = t.url
+      ? `<a href="${escapeHtml(t.url)}" target="_blank" rel="noopener" class="xi-post-link" title="View on X">↗</a>`
       : '';
 
     return `
       <div class="xi-post">
         <div class="xi-post-header">
-          <span class="xi-post-author">${escapeHtml(p.creatorDisplayName || p.creator)}</span>
-          <span class="xi-post-handle">@${escapeHtml(p.creator)}</span>
+          <span class="xi-post-author">${escapeHtml(t.author)}</span>
+          <span class="xi-post-handle">@${escapeHtml(t.handle)}</span>
           <span class="xi-post-followers">${followersStr}</span>
-          <span class="xi-post-time">${timeAgo}</span>
+          <span class="xi-post-time">${dateStr}</span>
           ${link}
         </div>
-        <div class="xi-post-text">${escapeHtml(p.text)}</div>
+        <div class="xi-post-text">${escapeHtml(t.text)}</div>
         <div class="xi-post-footer">
-          <span class="xi-post-interactions">💬 ${this.fmtNum(p.interactions)}</span>
-          <span class="xi-sent-dot ${sent}"></span>
+          <span class="xi-post-stat">❤ ${this.fmtNum(t.likes)}</span>
+          <span class="xi-post-stat">🔁 ${this.fmtNum(t.retweets)}</span>
+          <span class="xi-post-stat">💬 ${this.fmtNum(t.replies)}</span>
         </div>
       </div>
     `;
@@ -385,15 +356,6 @@ export class XInsightsPanel extends Panel {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}K`;
     return String(n);
-  }
-
-  private timeAgo(unixTs: number): string {
-    if (!unixTs) return '';
-    const diff = Math.floor(Date.now() / 1000 - unixTs);
-    if (diff < 60) return 'now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-    return `${Math.floor(diff / 86400)}d`;
   }
 
   private formatDate(dateStr: string): string {

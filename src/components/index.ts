@@ -24,7 +24,6 @@ export { PriorityFeesPanel } from './PriorityFeesPanel';
 export { NFTTrackerPanel } from './NFTTrackerPanel';
 export { GovernancePanel } from './GovernancePanel';
 export { TokenAnalyzePanel } from './TokenAnalyzePanel';
-export { XInsightsPanel } from './XInsightsPanel';
 export { GlobeModeSwitcher, type GlobeMode } from './GlobeModeSwitcher';
 
 // Panels kept from original (adapted)

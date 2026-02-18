@@ -28,7 +28,7 @@ import { fetchNFTData } from '@/services/nft-tracker';
 import { fetchGovernanceData } from '@/services/governance';
 import { analyzeTokenCA } from '@/services/token-analyze';
 import { fetchCATweets, clearCATweetCache } from '@/services/twitter-ca-search';
-import { fetchXInsights, searchX, clearSearchCache } from '@/services/x-insights';
+
 import {
   Panel,
   MonitorPanel,
@@ -50,7 +50,6 @@ import {
   NFTTrackerPanel,
   GovernancePanel,
   TokenAnalyzePanel,
-  XInsightsPanel,
   GlobeModeSwitcher,
 } from '@/components';
 import { SolanaDeckGlobe } from '@/components/SolanaDeckGlobe';
@@ -306,10 +305,6 @@ export class App {
     const tokenAnalyzePanel = new TokenAnalyzePanel();
     this.panels['token-analyze'] = tokenAnalyzePanel;
 
-    // X Insights panel
-    const xInsightsPanel = new XInsightsPanel();
-    this.panels['x-insights'] = xInsightsPanel;
-
     // Solana News feed
     const solanaNews = new NewsPanel('solana-news', 'Solana News');
     this.newsPanels['solana-news'] = solanaNews;
@@ -376,7 +371,6 @@ export class App {
       this.loadLSTData(),
       this.loadNftData(),
       this.loadGovernanceData(),
-      this.loadXInsightsData(),
       this.loadNews(),
       this.loadMarkets(),
     ];
@@ -696,23 +690,6 @@ export class App {
     }
   }
 
-  // X Insights (LunarCrush social data + multi-topic)
-  private async loadXInsightsData(): Promise<void> {
-    if (this.inFlight.has('x-insights')) return;
-    this.inFlight.add('x-insights');
-    try {
-      const data = await fetchXInsights();
-      const panel = this.panels['x-insights'] as XInsightsPanel;
-      if (panel) {
-        panel.update(data);
-      }
-    } catch (e) {
-      console.error('[SolanaApp] Failed to load X insights:', e);
-    } finally {
-      this.inFlight.delete('x-insights');
-    }
-  }
-
   // =========================================================================
   // REFRESH INTERVALS
   // =========================================================================
@@ -749,7 +726,6 @@ export class App {
     this.scheduleRefresh('lst-data', () => this.loadLSTData(), REFRESH_INTERVALS.liquidStaking);
     this.scheduleRefresh('nft-data', () => this.loadNftData(), REFRESH_INTERVALS.nft);
     this.scheduleRefresh('governance-data', () => this.loadGovernanceData(), REFRESH_INTERVALS.defi);
-    this.scheduleRefresh('x-insights', () => this.loadXInsightsData(), REFRESH_INTERVALS.xInsights);
 
     // News and markets — moderate intervals
     this.scheduleRefresh('news', () => this.loadNews(), REFRESH_INTERVALS.feeds);
@@ -807,42 +783,6 @@ export class App {
 
     // Theme toggle
     const themeBtn = document.getElementById('headerThemeToggle');
-
-    // X Insights search events
-    this.container.addEventListener('x-search', async (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.query) {
-        const panel = this.panels['x-insights'] as XInsightsPanel;
-        if (!panel) return;
-        panel.setSearching(detail.query);
-        clearSearchCache(detail.query);
-        try {
-          const results = await searchX(detail.query);
-          panel.setSearchResults(results);
-        } catch (err) {
-          panel.setSearchResults({ status: 'error', tweets: [], error: 'Search failed' });
-        }
-      }
-    });
-
-    this.container.addEventListener('x-search-poll', async (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.query) {
-        const panel = this.panels['x-insights'] as XInsightsPanel;
-        if (!panel) return;
-        try {
-          const results = await searchX(detail.query);
-          panel.setSearchResults(results);
-        } catch (err) {
-          console.warn('[XInsights] Poll error:', err);
-        }
-      }
-    });
-
-    this.container.addEventListener('x-search-clear', () => {
-      const panel = this.panels['x-insights'] as XInsightsPanel;
-      panel?.clearSearch();
-    });
 
     themeBtn?.addEventListener('click', () => {
       const current = getCurrentTheme();

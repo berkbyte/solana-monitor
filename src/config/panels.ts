@@ -12,7 +12,6 @@ const FULL_PANELS: Record<string, PanelConfig> = {
 
   // ── Core Activity ──
   'token-radar': { name: 'Token Radar', enabled: true, priority: 1 },
-  'x-insights': { name: '𝕏 Insights', enabled: true, priority: 1 },
   'network-status': { name: 'Network Status', enabled: true, priority: 1 },
   'whale-watch': { name: 'Whale Watch', enabled: true, priority: 1 },
   'priority-fees': { name: 'Priority Fees', enabled: true, priority: 1 },
