@@ -1,0 +1,140 @@
+// Liquid Staking Panel — Deep LST analytics
+import { Panel } from './Panel';
+import { escapeHtml } from '../utils/sanitize';
+
+interface LSTProvider {
+  name: string;
+  symbol: string;
+  mint: string;
+  tvlSol: number;
+  tvlUsd: number;
+  apy: number;
+  apyComponents: {
+    staking: number;
+    mev: number;
+    emissions: number;
+  };
+  priceSol: number;
+  pegDeviation: number; // percentage from 1:1
+  validators: number;
+  marketShare: number; // percentage of total Solana staked
+  fdv: number;
+  change24h: number;
+}
+
+interface LSTSummary {
+  totalStakedSol: number;
+  totalStakedUsd: number;
+  lstShareOfTotal: number; // % of total SOL staked via LSTs
+  providers: LSTProvider[];
+  avgApy: number;
+}
+
+export class LiquidStakingPanel extends Panel {
+  private data: LSTSummary | null = null;
+
+  constructor() {
+    super({
+      id: 'liquid-staking',
+      title: 'Liquid Staking',
+      className: 'liquid-staking-panel',
+      infoTooltip: 'Solana liquid staking token analytics. Tracks mSOL (Marinade), jitoSOL (Jito), bSOL (BlazeStake), INF/hSOL (Sanctum). APY includes base staking yield + MEV tips + protocol emissions.',
+    });
+
+    this.render();
+  }
+
+  public update(data: LSTSummary): void {
+    this.data = data;
+    this.render();
+  }
+
+  private render(): void {
+    if (!this.data) {
+      this.content.innerHTML = '<div class="panel-loading">Loading LST data...</div>';
+      return;
+    }
+
+    const d = this.data;
+
+    this.content.innerHTML = `
+      <div class="lst-overview">
+        <div class="lst-summary-row">
+          <div class="lst-summary-stat">
+            <span class="lst-label">Total LST TVL</span>
+            <span class="lst-value">${this.formatSol(d.totalStakedSol)} SOL</span>
+            <span class="lst-sub">${this.formatUsd(d.totalStakedUsd)}</span>
+          </div>
+          <div class="lst-summary-stat">
+            <span class="lst-label">LST Share</span>
+            <span class="lst-value">${d.lstShareOfTotal.toFixed(1)}%</span>
+            <span class="lst-sub">of total stake</span>
+          </div>
+          <div class="lst-summary-stat">
+            <span class="lst-label">Avg APY</span>
+            <span class="lst-value apy">${d.avgApy.toFixed(2)}%</span>
+          </div>
+        </div>
+
+        <div class="lst-providers">
+          ${d.providers.map(p => {
+            const pegClass = Math.abs(p.pegDeviation) < 0.5 ? 'peg-safe' : Math.abs(p.pegDeviation) < 2 ? 'peg-warn' : 'peg-danger';
+            return `
+              <div class="lst-provider-card">
+                <div class="lst-provider-header">
+                  <span class="lst-symbol">${escapeHtml(p.symbol)}</span>
+                  <span class="lst-name">${escapeHtml(p.name)}</span>
+                  <span class="lst-change ${p.change24h >= 0 ? 'positive' : 'negative'}">
+                    ${p.change24h >= 0 ? '+' : ''}${p.change24h.toFixed(1)}%
+                  </span>
+                </div>
+                <div class="lst-provider-metrics">
+                  <div class="lst-metric-row">
+                    <span class="lst-metric-label">TVL</span>
+                    <span class="lst-metric-value">${this.formatSol(p.tvlSol)} SOL</span>
+                  </div>
+                  <div class="lst-metric-row">
+                    <span class="lst-metric-label">APY</span>
+                    <span class="lst-metric-value apy">${p.apy.toFixed(2)}%</span>
+                    <span class="lst-apy-breakdown">
+                      (stake ${p.apyComponents.staking.toFixed(1)}% + mev ${p.apyComponents.mev.toFixed(1)}% + emit ${p.apyComponents.emissions.toFixed(1)}%)
+                    </span>
+                  </div>
+                  <div class="lst-metric-row">
+                    <span class="lst-metric-label">Peg</span>
+                    <span class="lst-metric-value ${pegClass}">
+                      ${p.pegDeviation >= 0 ? '+' : ''}${p.pegDeviation.toFixed(3)}%
+                    </span>
+                  </div>
+                  <div class="lst-metric-row">
+                    <span class="lst-metric-label">Market Share</span>
+                    <div class="lst-share-bar">
+                      <div class="lst-share-fill" style="width: ${Math.min(p.marketShare, 100)}%"></div>
+                    </div>
+                    <span class="lst-metric-value">${p.marketShare.toFixed(1)}%</span>
+                  </div>
+                  <div class="lst-metric-row">
+                    <span class="lst-metric-label">Validators</span>
+                    <span class="lst-metric-value">${p.validators.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  private formatSol(sol: number): string {
+    if (sol >= 1e6) return `${(sol / 1e6).toFixed(2)}M`;
+    if (sol >= 1e3) return `${(sol / 1e3).toFixed(0)}K`;
+    return sol.toFixed(0);
+  }
+
+  private formatUsd(value: number): string {
+    if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+    if (value >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+    return `$${(value / 1e3).toFixed(0)}K`;
+  }
+}

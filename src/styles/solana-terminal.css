@@ -1,0 +1,1886 @@
+/* ============================================================
+   Solana Terminal — Component Styles
+   Appended after main.css, adds styles for all new panels
+   ============================================================ */
+
+/* ============================================================
+   SOLANA BRAND OVERRIDES
+   ============================================================ */
+
+:root {
+  --solana-green: #14F195;
+  --solana-purple: #9945FF;
+  --solana-gradient: linear-gradient(135deg, #9945FF 0%, #14F195 100%);
+  --solana-gradient-text: linear-gradient(90deg, #9945FF, #14F195);
+}
+
+/* Solana-branded logo */
+.logo {
+  background: var(--solana-gradient-text);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* Status dot — Solana green */
+.status-dot {
+  background: var(--solana-green) !important;
+  box-shadow: 0 0 6px var(--solana-green);
+}
+
+/* ============================================================
+   GLOBE MODE SWITCHER
+   ============================================================ */
+
+.globe-mode-switcher {
+  display: flex;
+  align-items: center;
+}
+
+.globe-mode-bar {
+  display: flex;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  overflow-x: auto;
+}
+
+.globe-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.globe-mode-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.globe-mode-btn.active {
+  background: var(--solana-purple);
+  color: #fff;
+}
+
+.globe-mode-icon {
+  font-size: 0.85rem;
+}
+
+.globe-mode-key {
+  font-size: 0.6rem;
+  opacity: 0.5;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  padding: 0 3px;
+  line-height: 1.4;
+}
+
+/* ============================================================
+   FILTER CONTROLS (shared across panels)
+   ============================================================ */
+
+.whale-filter-controls,
+.pump-sort-controls,
+.defi-view-controls {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.filter-btn {
+  padding: 2px 6px;
+  font-size: 0.65rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.filter-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.filter-btn.active {
+  background: var(--solana-purple);
+  border-color: var(--solana-purple);
+  color: #fff;
+}
+
+/* ============================================================
+   NETWORK STATUS PANEL
+   ============================================================ */
+
+.net-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+}
+
+.net-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.net-stat-label {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.net-stat-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.net-stat-value.tps-high { color: var(--solana-green); }
+.net-stat-value.tps-medium { color: #FFD700; }
+.net-stat-value.tps-low { color: #FF4444; }
+.net-stat-value.health-ok { color: var(--solana-green); }
+.net-stat-value.health-degraded { color: #FFD700; }
+.net-stat-value.health-down { color: #FF4444; }
+
+.net-epoch-progress {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.net-epoch-fill {
+  height: 100%;
+  background: var(--solana-gradient);
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.net-fee-levels {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.net-fee-level {
+  text-align: center;
+  padding: 4px;
+  border-radius: 3px;
+  background: var(--overlay-subtle);
+}
+
+.fee-level-name {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  display: block;
+}
+
+.fee-level-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.fee-low { color: var(--solana-green); }
+.fee-med { color: #FFD700; }
+.fee-high { color: #FF8844; }
+.fee-turbo { color: #FF4444; }
+
+/* ============================================================
+   TOKEN RADAR PANEL
+   ============================================================ */
+
+.token-header-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.token-sort-btn {
+  padding: 2px 6px;
+  font-size: 0.65rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 3px;
+  font-family: inherit;
+}
+
+.token-sort-btn.active {
+  background: var(--solana-purple);
+  border-color: var(--solana-purple);
+  color: #fff;
+}
+
+.token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.token-row:hover {
+  background: var(--surface-hover);
+}
+
+.token-symbol {
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.token-name {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+.token-price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.positive { color: var(--solana-green); }
+.negative { color: #FF4444; }
+
+.rug-score {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.rug-safe { background: rgba(20, 241, 149, 0.15); color: var(--solana-green); }
+.rug-caution { background: rgba(255, 215, 0, 0.15); color: #FFD700; }
+.rug-risky { background: rgba(255, 136, 68, 0.15); color: #FF8844; }
+.rug-danger { background: rgba(255, 68, 68, 0.15); color: #FF4444; }
+
+/* ============================================================
+   WHALE WATCH PANEL
+   ============================================================ */
+
+.whale-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.whale-row:hover {
+  background: var(--surface-hover);
+}
+
+.whale-row.severity-critical {
+  border-left: 3px solid #FF4444;
+}
+
+.whale-row.severity-high {
+  border-left: 3px solid #FF8844;
+}
+
+.whale-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.whale-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.whale-main {
+  display: flex;
+  gap: 4px;
+  font-size: 0.75rem;
+}
+
+.whale-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.whale-dir {
+  color: var(--text-dim);
+}
+
+.whale-counter {
+  color: var(--text-secondary);
+}
+
+.whale-detail {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  margin-top: 2px;
+}
+
+.whale-amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.whale-time {
+  color: var(--text-dim);
+}
+
+/* ============================================================
+   DEFI OVERVIEW PANEL
+   ============================================================ */
+
+.defi-header {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.defi-tvl-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.defi-tvl-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.defi-tvl-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.defi-tvl-change {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.defi-protocol-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.defi-protocol-row:hover {
+  background: var(--surface-hover);
+}
+
+.defi-rank {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  width: 24px;
+  text-align: right;
+}
+
+.defi-protocol-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.defi-protocol-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.defi-protocol-cat {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+
+.defi-protocol-tvl {
+  text-align: right;
+}
+
+.defi-protocol-tvl-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.defi-protocol-tvl-change {
+  font-size: 0.65rem;
+  display: block;
+}
+
+/* LST (Liquid Staking) sub-view */
+.defi-lst-row {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.defi-lst-symbol {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--solana-purple);
+}
+
+.defi-lst-name {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+
+.defi-lst-metrics {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.defi-lst-metric {
+  font-size: 0.7rem;
+}
+
+.metric-label {
+  color: var(--text-dim);
+  font-size: 0.6rem;
+  display: block;
+}
+
+.metric-value {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-value.apy { color: var(--solana-green); }
+
+.peg-safe { color: var(--solana-green); }
+.peg-warn { color: #FFD700; }
+.peg-danger { color: #FF4444; }
+
+/* ============================================================
+   PUMP.FUN PANEL
+   ============================================================ */
+
+.pump-token-row {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.pump-token-row:hover {
+  background: var(--surface-hover);
+}
+
+.pump-token-row.graduated {
+  border-left: 3px solid var(--solana-green);
+}
+
+.pump-token-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pump-token-symbol {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.pump-badge {
+  font-size: 0.6rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.pump-badge.graduated {
+  background: rgba(20, 241, 149, 0.15);
+  color: var(--solana-green);
+}
+
+.pump-token-age {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.pump-token-name {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  display: block;
+  margin-top: 2px;
+}
+
+.pump-token-metrics {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.pump-metric {
+  font-size: 0.7rem;
+}
+
+.pump-progress-bar {
+  height: 4px;
+  width: 60px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 2px 0;
+}
+
+.pump-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.pump-token-social {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+/* ============================================================
+   MEV DASHBOARD PANEL
+   ============================================================ */
+
+.mev-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 8px;
+}
+
+.mev-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.mev-stat-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.mev-stat-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mev-stat-value.sol { color: var(--solana-purple); }
+
+.mev-section-title {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-weight: 500;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.mev-tip-distribution {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.mev-tip-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.tip-segment { height: 100%; }
+.tip-low { background: var(--solana-green); }
+.tip-med { background: #FFD700; }
+.tip-high { background: #FF4444; }
+
+.mev-tip-legend {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.tip-legend-item {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.tip-low-dot { background: var(--solana-green); }
+.tip-med-dot { background: #FFD700; }
+.tip-high-dot { background: #FF4444; }
+
+.mev-bundles-section {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.mev-bundle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 0.7rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.mev-bundle-type {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.type-arb { color: #00D4FF; }
+.type-liquidation { color: #FF4444; }
+.type-sandwich { color: #FFD700; }
+.type-backrun { color: var(--solana-green); }
+
+.mev-bundle-tip {
+  font-variant-numeric: tabular-nums;
+  color: var(--solana-purple);
+}
+
+.mev-bundle-txs {
+  color: var(--text-dim);
+}
+
+.mev-bundle-time {
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+/* ============================================================
+   LIQUID STAKING PANEL
+   ============================================================ */
+
+.lst-summary-row {
+  display: flex;
+  gap: 16px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lst-summary-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.lst-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.lst-value {
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.lst-value.apy { color: var(--solana-green); }
+
+.lst-sub {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+.lst-provider-card {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.lst-provider-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.lst-symbol {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--solana-purple);
+}
+
+.lst-name {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.lst-change {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.lst-provider-metrics {
+  margin-top: 4px;
+}
+
+.lst-metric-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  font-size: 0.7rem;
+}
+
+.lst-metric-label {
+  color: var(--text-dim);
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.lst-metric-value {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.lst-apy-breakdown {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+
+.lst-share-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  max-width: 100px;
+}
+
+.lst-share-fill {
+  height: 100%;
+  background: var(--solana-gradient);
+  border-radius: 2px;
+}
+
+/* ============================================================
+   PRIORITY FEES PANEL
+   ============================================================ */
+
+.fee-congestion {
+  padding: 8px;
+  border-bottom: 2px solid;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.fee-congestion-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.fee-congestion-value {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.fee-levels {
+  padding: 8px;
+}
+
+.fee-level-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px;
+  margin-bottom: 4px;
+  background: var(--overlay-subtle);
+  border-radius: 4px;
+}
+
+.fee-level-header {
+  display: flex;
+  flex-direction: column;
+}
+
+.fee-level-label {
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.fee-level-desc {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.fee-level-value {
+  text-align: right;
+}
+
+.fee-micro {
+  font-weight: 700;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fee-unit {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  margin-left: 2px;
+}
+
+.fee-section-title {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  display: block;
+  margin: 8px 0 4px;
+}
+
+.fee-percentile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.fee-pct {
+  text-align: center;
+  padding: 4px;
+  background: var(--overlay-subtle);
+  border-radius: 3px;
+}
+
+.pct-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  display: block;
+}
+
+.pct-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   NFT TRACKER PANEL
+   ============================================================ */
+
+.nft-summary-bar {
+  display: flex;
+  gap: 16px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.nft-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.nft-stat-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.nft-stat-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.nft-collection-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.nft-collection-row:hover {
+  background: var(--surface-hover);
+}
+
+.nft-rank {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  width: 20px;
+}
+
+.nft-collection-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.nft-collection-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.nft-marketplace {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+
+.nft-collection-metrics {
+  display: flex;
+  gap: 12px;
+}
+
+.nft-metric {
+  font-size: 0.7rem;
+  text-align: right;
+}
+
+/* ============================================================
+   GOVERNANCE PANEL
+   ============================================================ */
+
+.gov-summary {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.gov-proposal-row {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.gov-proposal-row:hover {
+  background: var(--surface-hover);
+}
+
+.gov-proposal-header {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.gov-dao-name {
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--solana-purple);
+}
+
+.gov-platform {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.gov-time-left {
+  margin-left: auto;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+.gov-proposal-title {
+  font-size: 0.75rem;
+  margin: 4px 0;
+  color: var(--text);
+}
+
+.gov-vote-bar-container {
+  margin-top: 4px;
+}
+
+.gov-vote-bar {
+  height: 6px;
+  background: rgba(255, 68, 68, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.gov-vote-for {
+  height: 100%;
+  background: var(--solana-green);
+  border-radius: 3px;
+}
+
+.gov-vote-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.6rem;
+  margin-top: 2px;
+}
+
+.gov-for { color: var(--solana-green); }
+.gov-against { color: #FF4444; }
+
+.gov-proposal-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.6rem;
+}
+
+.gov-voters { color: var(--text-dim); }
+.gov-quorum.reached { color: var(--solana-green); }
+.gov-quorum.pending { color: var(--text-dim); }
+
+/* ============================================================
+   RUG DETECTOR PANEL
+   ============================================================ */
+
+.rug-search {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rug-search-input {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 3px;
+  font-family: monospace;
+}
+
+.rug-search-btn {
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  background: var(--solana-purple);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.rug-analysis-card {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.rug-analysis-card:hover {
+  background: var(--surface-hover);
+}
+
+.rug-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rug-token-id {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.rug-symbol {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.rug-name {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.rug-verdict {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.rug-score {
+  font-size: 1rem;
+}
+
+.rug-verdict-label {
+  font-size: 0.7rem;
+}
+
+.rug-authorities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.rug-auth {
+  font-size: 0.6rem;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.auth-safe {
+  background: rgba(20, 241, 149, 0.12);
+  color: var(--solana-green);
+}
+
+.auth-danger {
+  background: rgba(255, 68, 68, 0.12);
+  color: #FF4444;
+}
+
+.auth-warn {
+  background: rgba(255, 215, 0, 0.12);
+  color: #FFD700;
+}
+
+.rug-holders {
+  margin-top: 6px;
+}
+
+.rug-holder-bar {
+  height: 6px;
+  display: flex;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.rug-holder-top1 {
+  background: #FF4444;
+}
+
+.rug-holder-top10 {
+  background: #FF8844;
+}
+
+.rug-holder-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+  display: block;
+}
+
+.rug-creator-history {
+  margin-top: 4px;
+  font-size: 0.65rem;
+}
+
+.rug-creator-label {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.rug-creator-stats {
+  color: var(--text-secondary);
+}
+
+.rug-checks {
+  margin-top: 6px;
+  display: grid;
+  gap: 2px;
+}
+
+.rug-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.check-pass {
+  color: var(--solana-green);
+}
+
+.check-fail.check-warning {
+  color: #FFD700;
+  background: rgba(255, 215, 0, 0.06);
+}
+
+.check-fail.check-critical {
+  color: #FF4444;
+  background: rgba(255, 68, 68, 0.06);
+}
+
+.rug-check-icon {
+  font-weight: 700;
+  width: 12px;
+}
+
+.rug-check-name {
+  font-weight: 500;
+}
+
+.rug-check-detail {
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.rug-honeypot-warn {
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(255, 68, 68, 0.12);
+  color: #FF4444;
+  font-weight: 700;
+  font-size: 0.75rem;
+  border-radius: 3px;
+  text-align: center;
+  animation: pulse 1.5s infinite;
+}
+
+/* ============================================================
+   TOKEN ANALYZE PANEL
+   ============================================================ */
+
+.token-analyze-search {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.token-analyze-input {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 0.72rem;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -0.02em;
+}
+
+.token-analyze-input:focus {
+  border-color: var(--solana-green);
+  outline: none;
+}
+
+.token-analyze-btn {
+  padding: 4px 12px;
+  font-size: 0.72rem;
+  background: var(--solana-green);
+  color: #000;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: 700;
+  font-family: inherit;
+  transition: opacity 0.15s;
+}
+
+.token-analyze-btn:hover {
+  opacity: 0.85;
+}
+
+.token-analyze-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+  text-align: center;
+  gap: 6px;
+}
+
+.token-analyze-empty-icon {
+  font-size: 1.6rem;
+  opacity: 0.5;
+}
+
+.token-analyze-empty-text {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.token-analyze-empty-sub {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+/* Card */
+.ta-card {
+  padding: 10px;
+}
+
+.ta-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.ta-token-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ta-token-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+
+.ta-token-name {
+  display: flex;
+  flex-direction: column;
+}
+
+.ta-symbol {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.ta-name {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.ta-signal {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #000;
+  letter-spacing: 0.02em;
+}
+
+/* Price row */
+.ta-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.ta-price {
+  font-size: 1.1rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+}
+
+.ta-changes {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ta-change {
+  font-size: 0.62rem;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.ta-change.positive {
+  color: var(--solana-green);
+  background: rgba(20, 241, 149, 0.08);
+}
+
+.ta-change.negative {
+  color: #FF4444;
+  background: rgba(255, 68, 68, 0.08);
+}
+
+/* Stats grid */
+.ta-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.ta-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 6px;
+  background: var(--surface);
+  border-radius: 3px;
+  border: 1px solid var(--border-subtle);
+}
+
+.ta-stat-label {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ta-stat-value {
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+}
+
+.ta-stat-value.positive { color: var(--solana-green); }
+.ta-stat-value.negative { color: #FF4444; }
+
+/* Risk section */
+.ta-risk-section {
+  margin-bottom: 8px;
+}
+
+.ta-risk-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.ta-risk-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ta-risk-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  color: #000;
+}
+
+.ta-risk-score {
+  font-size: 1rem;
+}
+
+.ta-risk-label {
+  font-size: 0.68rem;
+}
+
+.ta-risk-bar-bg {
+  height: 5px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ta-risk-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+/* Authorities */
+.ta-authorities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.ta-auth {
+  font-size: 0.62rem;
+  padding: 2px 5px;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+/* Holders bar */
+.ta-holders {
+  margin-bottom: 8px;
+}
+
+.ta-holder-bar {
+  height: 6px;
+  display: flex;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.ta-holder-top1 { background: #FF4444; }
+.ta-holder-top10 { background: #FF8844; }
+
+.ta-holder-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+  display: block;
+}
+
+/* Risk factors */
+.ta-factors {
+  margin-bottom: 8px;
+}
+
+.ta-factors-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.ta-factor {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  padding: 2px 4px;
+  border-radius: 2px;
+  margin-bottom: 1px;
+}
+
+.factor-pass { color: var(--solana-green); }
+.factor-warn { color: #FFD700; background: rgba(255, 215, 0, 0.06); }
+.factor-fail { color: #FF4444; background: rgba(255, 68, 68, 0.06); }
+
+.ta-factor-icon {
+  font-weight: 700;
+  width: 12px;
+  text-align: center;
+}
+
+.ta-factor-name {
+  font-weight: 500;
+  min-width: 80px;
+}
+
+.ta-factor-detail {
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+/* Signal section */
+.ta-signal-section {
+  margin-bottom: 8px;
+}
+
+.ta-signal-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.ta-signal-reasons {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* Honeypot warning */
+.ta-honeypot-warn {
+  margin: 8px 0;
+  padding: 6px 8px;
+  background: rgba(255, 68, 68, 0.15);
+  color: #FF4444;
+  font-weight: 800;
+  font-size: 0.78rem;
+  border-radius: 4px;
+  text-align: center;
+  animation: pulse 1.2s infinite;
+  border: 1px solid rgba(255, 68, 68, 0.3);
+}
+
+/* Links */
+.ta-links {
+  display: flex;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 4px;
+}
+
+.ta-links a {
+  font-size: 0.65rem;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.ta-links a:hover {
+  background: var(--surface-hover);
+}
+
+/* History */
+.ta-history {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.ta-history-title {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.ta-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  font-size: 0.68rem;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.ta-history-item:hover {
+  background: var(--surface-hover);
+}
+
+.ta-history-symbol {
+  font-weight: 700;
+  min-width: 50px;
+}
+
+.ta-history-price {
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+}
+
+.ta-history-change {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+}
+
+.ta-history-change.positive { color: var(--solana-green); }
+.ta-history-change.negative { color: #FF4444; }
+
+.ta-history-risk {
+  margin-left: auto;
+  font-weight: 600;
+  font-size: 0.62rem;
+}
+
+/* ============================================================
+   TOKEN ANALYZE — X/TWITTER CA MENTIONS
+   ============================================================ */
+
+.ta-tweets-section {
+  margin-top: 12px;
+  padding: 10px;
+  background: linear-gradient(135deg, rgba(29, 161, 242, 0.08), rgba(29, 161, 242, 0.03));
+  border: 1px solid rgba(29, 161, 242, 0.15);
+  border-radius: 6px;
+}
+
+.ta-tweets-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #1da1f2;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ta-tweets-count {
+  font-size: 0.6rem;
+  font-weight: 400;
+  color: var(--text-dim, #888);
+  margin-left: auto;
+}
+
+.ta-tweets-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.65rem;
+  color: var(--text-dim, #888);
+  padding: 8px 0;
+}
+
+.ta-tweets-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(29, 161, 242, 0.2);
+  border-top-color: #1da1f2;
+  border-radius: 50%;
+  animation: ta-spin 0.8s linear infinite;
+}
+
+@keyframes ta-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ta-tweets-empty {
+  font-size: 0.65rem;
+  color: var(--text-dim, #888);
+  padding: 6px 0;
+}
+
+.ta-tweets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ta-tweet {
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  border: 1px solid rgba(29, 161, 242, 0.08);
+}
+
+.ta-tweet-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 0.6rem;
+}
+
+.ta-tweet-author {
+  font-weight: 600;
+  color: #1da1f2;
+}
+
+.ta-tweet-followers {
+  color: var(--text-dim, #888);
+  font-size: 0.55rem;
+}
+
+.ta-tweet-time {
+  color: var(--text-dim, #888);
+  font-size: 0.55rem;
+  margin-left: auto;
+}
+
+.ta-tweet-link {
+  color: #1da1f2;
+  text-decoration: none;
+  font-size: 0.7rem;
+}
+
+.ta-tweet-link:hover {
+  opacity: 0.8;
+}
+
+.ta-tweet-text {
+  font-size: 0.63rem;
+  color: var(--text, #ccc);
+  line-height: 1.5;
+  word-break: break-word;
+  margin-bottom: 4px;
+}
+
+.ta-tweet-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 0.55rem;
+  color: var(--text-dim, #888);
+}
+
+.ta-tweet-stat {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+@media (max-width: 768px) {
+  .ta-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ============================================================
+   PANEL LOADING STATE
+   ============================================================ */
+
+.panel-loading, .panel-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  min-height: 60px;
+}
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .globe-mode-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .globe-mode-label {
+    display: none;
+  }
+
+  .globe-mode-key {
+    display: none;
+  }
+
+  .net-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mev-stat-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .lst-summary-row {
+    flex-wrap: wrap;
+  }
+
+  .nft-collection-metrics {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+}

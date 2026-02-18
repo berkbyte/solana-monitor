@@ -1,0 +1,585 @@
+import { Panel } from './Panel';
+import { mlWorker } from '@/services/ml-worker';
+import { generateSummary } from '@/services/summarization';
+import { parallelAnalysis, type AnalyzedHeadline } from '@/services/parallel-analysis';
+import { isMobileDevice } from '@/utils';
+import { escapeHtml } from '@/utils/sanitize';
+import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
+import {
+  fetchSocialPulse,
+  type SocialPulseData,
+  type SocialPost,
+} from '@/services/social-pulse';
+import type { ClusteredEvent } from '@/types';
+
+export class InsightsPanel extends Panel {
+  private isHidden = false;
+  private lastBriefUpdate = 0;
+  private cachedBrief: string | null = null;
+  private lastMissedStories: AnalyzedHeadline[] = [];
+  private lastSocialPulse: SocialPulseData | null = null;
+  private static readonly BRIEF_COOLDOWN_MS = 120000; // 2 min cooldown (API has limits)
+  private static readonly BRIEF_CACHE_KEY = 'summary:world-brief';
+
+  constructor() {
+    super({
+      id: 'insights',
+      title: 'AI INSIGHTS',
+      showCount: false,
+      infoTooltip: `
+        <strong>AI-Powered Crypto Analysis</strong><br>
+        • <strong>Market Brief</strong>: AI summary (Groq/OpenRouter)<br>
+        • <strong>Sentiment</strong>: Crypto news tone analysis<br>
+        • <strong>Velocity</strong>: Fast-moving stories<br>
+        • <strong>Focal Points</strong>: Key events affecting Solana & crypto markets<br>
+        <em>Desktop only • Powered by Llama 3.3</em>
+      `,
+    });
+
+    if (isMobileDevice()) {
+      this.hide();
+      this.isHidden = true;
+    }
+  }
+
+  private async loadBriefFromCache(): Promise<boolean> {
+    if (this.cachedBrief) return false;
+    const entry = await getPersistentCache<{ summary: string }>(InsightsPanel.BRIEF_CACHE_KEY);
+    if (!entry?.data?.summary) return false;
+    this.cachedBrief = entry.data.summary;
+    this.lastBriefUpdate = entry.updatedAt;
+    return true;
+  }
+  // High-priority crypto/market-moving keywords (huge boost)
+  private static readonly MILITARY_KEYWORDS = [
+    'hack', 'exploit', 'hacked', 'drained', 'stolen', 'rugpull', 'rug pull',
+    'bridge hack', 'flash loan', 'vulnerability', 'zero-day', 'compromised',
+    'breach', 'attack', 'malicious', 'phishing', 'scam', 'ponzi',
+  ];
+
+  // Market crash/panic keywords (huge boost - financial impact)
+  private static readonly VIOLENCE_KEYWORDS = [
+    'crash', 'plunge', 'dump', 'liquidated', 'liquidation', 'cascade',
+    'bank run', 'depeg', 'insolvency', 'bankrupt', 'bankruptcy', 'contagion',
+    'collapse', 'meltdown', 'wipeout', 'loss', 'losses', 'seized',
+  ];
+
+  // Regulatory/compliance keywords (high boost)
+  private static readonly UNREST_KEYWORDS = [
+    'sec', 'cftc', 'regulation', 'lawsuit', 'charged', 'indicted', 'enforcement',
+    'ban', 'crackdown', 'investigation', 'compliance', 'sanction', 'sanctions',
+    'fine', 'penalty', 'subpoena', 'settlement', 'fraud',
+  ];
+
+  // Key crypto entities and ecosystems (major boost)
+  private static readonly FLASHPOINT_KEYWORDS = [
+    'solana', 'sol', 'bitcoin', 'btc', 'ethereum', 'eth', 'defi',
+    'binance', 'coinbase', 'tether', 'usdc', 'usdt', 'circle',
+    'jupiter', 'jito', 'marinade', 'raydium', 'phantom',
+    'blackrock', 'fidelity', 'etf', 'grayscale', 'stablecoin',
+  ];
+
+  // Market-moving events (moderate boost)
+  private static readonly CRISIS_KEYWORDS = [
+    'breaking', 'urgent', 'exclusive', 'alert', 'surge', 'rally',
+    'bullish', 'bearish', 'all-time high', 'ath', 'halving',
+    'airdrop', 'listing', 'delisting', 'partnership', 'upgrade',
+    'mainnet', 'fork', 'migration', 'launch', 'tokenomics',
+  ];
+
+  // Non-crypto noise that should REDUCE score
+  private static readonly DEMOTE_KEYWORDS = [
+    'sports', 'celebrity', 'entertainment', 'movie', 'music',
+    'weather', 'recipe', 'fashion', 'horoscope',
+  ];
+
+  private getImportanceScore(cluster: ClusteredEvent): number {
+    let score = 0;
+    const titleLower = cluster.primaryTitle.toLowerCase();
+
+    // Source confirmation (base signal)
+    score += cluster.sourceCount * 10;
+
+    // Violence/casualty keywords: highest priority (+100 base, +25 per match)
+    // "Pools of blood" type stories should always surface
+    const violenceMatches = InsightsPanel.VIOLENCE_KEYWORDS.filter(kw => titleLower.includes(kw));
+    if (violenceMatches.length > 0) {
+      score += 100 + (violenceMatches.length * 25);
+    }
+
+    // Military keywords: highest priority (+80 base, +20 per match)
+    const militaryMatches = InsightsPanel.MILITARY_KEYWORDS.filter(kw => titleLower.includes(kw));
+    if (militaryMatches.length > 0) {
+      score += 80 + (militaryMatches.length * 20);
+    }
+
+    // Civil unrest: high priority (+70 base, +18 per match)
+    const unrestMatches = InsightsPanel.UNREST_KEYWORDS.filter(kw => titleLower.includes(kw));
+    if (unrestMatches.length > 0) {
+      score += 70 + (unrestMatches.length * 18);
+    }
+
+    // Flashpoint keywords: high priority (+60 base, +15 per match)
+    const flashpointMatches = InsightsPanel.FLASHPOINT_KEYWORDS.filter(kw => titleLower.includes(kw));
+    if (flashpointMatches.length > 0) {
+      score += 60 + (flashpointMatches.length * 15);
+    }
+
+    // COMBO BONUS: Hack/crash + key entity = critical story
+    // e.g., "Solana hack" + "drained" = huge boost
+    if ((violenceMatches.length > 0 || unrestMatches.length > 0) && flashpointMatches.length > 0) {
+      score *= 1.5; // 50% bonus for entity + crisis combo
+    }
+
+    // Crisis keywords: moderate priority (+30 base, +10 per match)
+    const crisisMatches = InsightsPanel.CRISIS_KEYWORDS.filter(kw => titleLower.includes(kw));
+    if (crisisMatches.length > 0) {
+      score += 30 + (crisisMatches.length * 10);
+    }
+
+    // Demote business/tech news that happens to contain military words
+    const demoteMatches = InsightsPanel.DEMOTE_KEYWORDS.filter(kw => titleLower.includes(kw));
+    if (demoteMatches.length > 0) {
+      score *= 0.3; // Heavy penalty for business context
+    }
+
+    // Velocity multiplier
+    const velMultiplier: Record<string, number> = {
+      'viral': 3,
+      'spike': 2.5,
+      'elevated': 1.5,
+      'normal': 1
+    };
+    score *= velMultiplier[cluster.velocity?.level ?? 'normal'] ?? 1;
+
+    // Alert bonus
+    if (cluster.isAlert) score += 50;
+
+    // Recency bonus (decay over 12 hours)
+    const ageMs = Date.now() - cluster.firstSeen.getTime();
+    const ageHours = ageMs / 3600000;
+    const recencyMultiplier = Math.max(0.5, 1 - (ageHours / 12));
+    score *= recencyMultiplier;
+
+    return score;
+  }
+
+  private selectTopStories(clusters: ClusteredEvent[], maxCount: number): ClusteredEvent[] {
+    // Score ALL clusters first - high-scoring stories override source requirements
+    const allScored = clusters
+      .map(c => ({ cluster: c, score: this.getImportanceScore(c) }));
+
+    // Filter: require at least 2 sources OR alert OR elevated velocity OR high score
+    // High score (>100) means critical keywords were matched - don't require multi-source
+    const candidates = allScored.filter(({ cluster: c, score }) =>
+      c.sourceCount >= 2 ||
+      c.isAlert ||
+      (c.velocity && c.velocity.level !== 'normal') ||
+      score > 100  // Critical stories bypass source requirement
+    );
+
+    // Sort by score
+    const scored = candidates.sort((a, b) => b.score - a.score);
+
+    // Select with source diversity (max 3 from same primary source)
+    const selected: ClusteredEvent[] = [];
+    const sourceCount = new Map<string, number>();
+    const MAX_PER_SOURCE = 3;
+
+    for (const { cluster } of scored) {
+      const source = cluster.primarySource;
+      const count = sourceCount.get(source) || 0;
+
+      if (count < MAX_PER_SOURCE) {
+        selected.push(cluster);
+        sourceCount.set(source, count + 1);
+      }
+
+      if (selected.length >= maxCount) break;
+    }
+
+    return selected;
+  }
+
+  private setProgress(step: number, total: number, message: string): void {
+    const percent = Math.round((step / total) * 100);
+    this.setContent(`
+      <div class="insights-progress">
+        <div class="insights-progress-bar">
+          <div class="insights-progress-fill" style="width: ${percent}%"></div>
+        </div>
+        <div class="insights-progress-info">
+          <span class="insights-progress-step">Step ${step}/${total}</span>
+          <span class="insights-progress-message">${message}</span>
+        </div>
+      </div>
+    `);
+  }
+
+  public async updateInsights(clusters: ClusteredEvent[]): Promise<void> {
+    if (this.isHidden) return;
+
+    if (clusters.length === 0) {
+      this.setDataBadge('unavailable');
+      this.setContent('<div class="insights-empty">Waiting for news data...</div>');
+      return;
+    }
+
+    const totalSteps = 4;
+
+    try {
+      // Step 1: Filter and rank stories by composite importance score
+      this.setProgress(1, totalSteps, 'Ranking important stories...');
+
+      const importantClusters = this.selectTopStories(clusters, 8);
+
+      // Run parallel multi-perspective analysis in background
+      const parallelPromise = parallelAnalysis.analyzeHeadlines(clusters).then(report => {
+        this.lastMissedStories = report.missedByKeywords;
+        const suggestions = parallelAnalysis.getSuggestedImprovements();
+        if (suggestions.length > 0) {
+          console.log('%c💡 Improvement Suggestions:', 'color: #f59e0b; font-weight: bold');
+          suggestions.forEach(s => console.log(`  • ${s}`));
+        }
+      }).catch(err => {
+        console.warn('[ParallelAnalysis] Error:', err);
+      });
+
+      if (importantClusters.length === 0) {
+        this.setContent('<div class="insights-empty">No breaking or multi-source stories yet</div>');
+        return;
+      }
+
+      const titles = importantClusters.map(c => c.primaryTitle);
+
+      // Step 2: Analyze sentiment (browser-based, fast)
+      this.setProgress(2, totalSteps, 'Analyzing sentiment...');
+      let sentiments: Array<{ label: string; score: number }> | null = null;
+
+      if (mlWorker.isAvailable) {
+        sentiments = await mlWorker.classifySentiment(titles).catch(() => null);
+      }
+
+      // Step 3: Generate World Brief (with cooldown)
+      const loadedFromPersistentCache = await this.loadBriefFromCache();
+      let worldBrief = this.cachedBrief;
+      const now = Date.now();
+
+      let usedCachedBrief = loadedFromPersistentCache;
+      if (!worldBrief || now - this.lastBriefUpdate > InsightsPanel.BRIEF_COOLDOWN_MS) {
+        this.setProgress(3, totalSteps, 'Generating world brief...');
+
+        const result = await generateSummary(titles, (_step, _total, msg) => {
+          // Show sub-progress for summarization
+          this.setProgress(3, totalSteps, `Generating brief: ${msg}`);
+        }, '');
+
+        if (result) {
+          worldBrief = result.summary;
+          this.cachedBrief = worldBrief;
+          this.lastBriefUpdate = now;
+          usedCachedBrief = false;
+          void setPersistentCache(InsightsPanel.BRIEF_CACHE_KEY, { summary: worldBrief });
+          console.log(`[InsightsPanel] Brief generated${result.cached ? ' (cached)' : ''}`);
+        }
+      } else {
+        usedCachedBrief = true;
+        this.setProgress(3, totalSteps, 'Using cached brief...');
+      }
+
+      this.setDataBadge(worldBrief ? (usedCachedBrief ? 'cached' : 'live') : 'unavailable');
+
+      // Step 4: Wait for parallel analysis to complete
+      this.setProgress(4, totalSteps, 'Multi-perspective analysis...');
+      await parallelPromise;
+
+      // Fetch social pulse data (non-blocking)
+      this.lastSocialPulse = await fetchSocialPulse().catch(() => null);
+
+      this.renderInsights(importantClusters, sentiments, worldBrief);
+    } catch (error) {
+      console.error('[InsightsPanel] Error:', error);
+      this.setContent('<div class="insights-error">Analysis failed - retrying...</div>');
+    }
+  }
+
+  private renderInsights(
+    clusters: ClusteredEvent[],
+    sentiments: Array<{ label: string; score: number }> | null,
+    worldBrief: string | null
+  ): void {
+    const socialHtml = this.renderSocialPulse();
+    const briefHtml = worldBrief ? this.renderWorldBrief(worldBrief) : '';
+    const sentimentOverview = this.renderSentimentOverview(sentiments);
+    const breakingHtml = this.renderBreakingStories(clusters, sentiments);
+    const statsHtml = this.renderStats(clusters);
+    const missedHtml = this.renderMissedStories();
+
+    this.setContent(`
+      ${socialHtml}
+      ${briefHtml}
+      ${sentimentOverview}
+      ${statsHtml}
+      <div class="insights-section">
+        <div class="insights-section-title">BREAKING & CONFIRMED</div>
+        ${breakingHtml}
+      </div>
+      ${missedHtml}
+    `);
+
+
+  }
+
+  private renderWorldBrief(brief: string): string {
+    return `
+      <div class="insights-brief">
+        <div class="insights-section-title">📊 MARKET BRIEF</div>
+        <div class="insights-brief-text">${escapeHtml(brief)}</div>
+      </div>
+    `;
+  }
+
+  private renderBreakingStories(
+    clusters: ClusteredEvent[],
+    sentiments: Array<{ label: string; score: number }> | null
+  ): string {
+    return clusters.map((cluster, i) => {
+      const sentiment = sentiments?.[i];
+      const sentimentClass = sentiment?.label === 'negative' ? 'negative' :
+        sentiment?.label === 'positive' ? 'positive' : 'neutral';
+
+      const badges: string[] = [];
+
+      if (cluster.sourceCount >= 3) {
+        badges.push(`<span class="insight-badge confirmed">✓ ${cluster.sourceCount} sources</span>`);
+      } else if (cluster.sourceCount >= 2) {
+        badges.push(`<span class="insight-badge multi">${cluster.sourceCount} sources</span>`);
+      }
+
+      if (cluster.velocity && cluster.velocity.level !== 'normal') {
+        const velIcon = cluster.velocity.trend === 'rising' ? '↑' : '';
+        badges.push(`<span class="insight-badge velocity ${cluster.velocity.level}">${velIcon}+${cluster.velocity.sourcesPerHour}/hr</span>`);
+      }
+
+      if (cluster.isAlert) {
+        badges.push('<span class="insight-badge alert">⚠ ALERT</span>');
+      }
+
+      return `
+        <div class="insight-story">
+          <div class="insight-story-header">
+            <span class="insight-sentiment-dot ${sentimentClass}"></span>
+            <span class="insight-story-title">${escapeHtml(cluster.primaryTitle.slice(0, 100))}${cluster.primaryTitle.length > 100 ? '...' : ''}</span>
+          </div>
+          ${badges.length > 0 ? `<div class="insight-badges">${badges.join('')}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  private renderSentimentOverview(sentiments: Array<{ label: string; score: number }> | null): string {
+    if (!sentiments || sentiments.length === 0) {
+      return '';
+    }
+
+    const negative = sentiments.filter(s => s.label === 'negative').length;
+    const positive = sentiments.filter(s => s.label === 'positive').length;
+    const neutral = sentiments.length - negative - positive;
+
+    const total = sentiments.length;
+    const negPct = Math.round((negative / total) * 100);
+    const neuPct = Math.round((neutral / total) * 100);
+    const posPct = 100 - negPct - neuPct;
+
+    let toneLabel = 'Mixed';
+    let toneClass = 'neutral';
+    if (negative > positive + neutral) {
+      toneLabel = 'Negative';
+      toneClass = 'negative';
+    } else if (positive > negative + neutral) {
+      toneLabel = 'Positive';
+      toneClass = 'positive';
+    }
+
+    return `
+      <div class="insights-sentiment-bar">
+        <div class="sentiment-bar-track">
+          <div class="sentiment-bar-negative" style="width: ${negPct}%"></div>
+          <div class="sentiment-bar-neutral" style="width: ${neuPct}%"></div>
+          <div class="sentiment-bar-positive" style="width: ${posPct}%"></div>
+        </div>
+        <div class="sentiment-bar-labels">
+          <span class="sentiment-label negative">${negative}</span>
+          <span class="sentiment-label neutral">${neutral}</span>
+          <span class="sentiment-label positive">${positive}</span>
+        </div>
+        <div class="sentiment-tone ${toneClass}">Overall: ${toneLabel}</div>
+      </div>
+    `;
+  }
+
+  private renderStats(clusters: ClusteredEvent[]): string {
+    const multiSource = clusters.filter(c => c.sourceCount >= 2).length;
+    const fastMoving = clusters.filter(c => c.velocity && c.velocity.level !== 'normal').length;
+    const alerts = clusters.filter(c => c.isAlert).length;
+
+    return `
+      <div class="insights-stats">
+        <div class="insight-stat">
+          <span class="insight-stat-value">${multiSource}</span>
+          <span class="insight-stat-label">Multi-source</span>
+        </div>
+        <div class="insight-stat">
+          <span class="insight-stat-value">${fastMoving}</span>
+          <span class="insight-stat-label">Fast-moving</span>
+        </div>
+        ${alerts > 0 ? `
+        <div class="insight-stat alert">
+          <span class="insight-stat-value">${alerts}</span>
+          <span class="insight-stat-label">Alerts</span>
+        </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  private renderMissedStories(): string {
+    if (this.lastMissedStories.length === 0) {
+      return '';
+    }
+
+    const storiesHtml = this.lastMissedStories.slice(0, 3).map(story => {
+      const topPerspective = story.perspectives
+        .filter(p => p.name !== 'keywords')
+        .sort((a, b) => b.score - a.score)[0];
+
+      const perspectiveName = topPerspective?.name ?? 'ml';
+      const perspectiveScore = topPerspective?.score ?? 0;
+
+      return `
+        <div class="insight-story missed">
+          <div class="insight-story-header">
+            <span class="insight-sentiment-dot ml-flagged"></span>
+            <span class="insight-story-title">${escapeHtml(story.title.slice(0, 80))}${story.title.length > 80 ? '...' : ''}</span>
+          </div>
+          <div class="insight-badges">
+            <span class="insight-badge ml-detected">🔬 ${perspectiveName}: ${(perspectiveScore * 100).toFixed(0)}%</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="insights-section insights-missed">
+        <div class="insights-section-title">🎯 ML DETECTED</div>
+        ${storiesHtml}
+      </div>
+    `;
+  }
+
+  /* ====================== SOCIAL PULSE (X / LunarCrush) ====================== */
+
+  private renderSocialPulse(): string {
+    const data = this.lastSocialPulse;
+    if (!data || (!data.summary && data.posts.length === 0)) {
+      return `
+        <div class="insights-social-pulse">
+          <div class="insights-section-title">𝕏 SOCIAL PULSE</div>
+          <div class="social-empty">No social data yet — will refresh shortly</div>
+        </div>
+      `;
+    }
+
+    const summaryHtml = data.summary ? this.renderSocialSummary(data.summary) : '';
+    const postsHtml = data.posts.length > 0 ? this.renderSocialPosts(data.posts) : '';
+
+    return `
+      <div class="insights-social-pulse">
+        <div class="insights-section-title">𝕏 SOCIAL PULSE</div>
+        ${summaryHtml}
+        ${postsHtml}
+      </div>
+    `;
+  }
+
+  private renderSocialSummary(s: NonNullable<SocialPulseData['summary']>): string {
+    const volChange = s.socialVolumePrev24h > 0
+      ? ((s.socialVolume24h - s.socialVolumePrev24h) / s.socialVolumePrev24h * 100)
+      : 0;
+    const volChangeStr = volChange >= 0 ? `+${volChange.toFixed(0)}%` : `${volChange.toFixed(0)}%`;
+    const volChangeClass = volChange > 10 ? 'positive' : volChange < -10 ? 'negative' : 'neutral';
+
+    const sentimentLabel = s.sentiment >= 4 ? 'Bullish' : s.sentiment >= 3 ? 'Neutral' : 'Bearish';
+    const sentimentClass = s.sentiment >= 4 ? 'positive' : s.sentiment >= 3 ? 'neutral' : 'negative';
+
+    return `
+      <div class="social-summary-grid">
+        <div class="social-metric">
+          <span class="social-metric-value">${this.formatNum(s.postsCount24h)}</span>
+          <span class="social-metric-label">Posts 24h</span>
+        </div>
+        <div class="social-metric">
+          <span class="social-metric-value ${volChangeClass}">${volChangeStr}</span>
+          <span class="social-metric-label">Volume Δ</span>
+        </div>
+        <div class="social-metric">
+          <span class="social-metric-value">${this.formatNum(s.interactions24h)}</span>
+          <span class="social-metric-label">Interactions</span>
+        </div>
+        <div class="social-metric">
+          <span class="social-metric-value ${sentimentClass}">${sentimentLabel}</span>
+          <span class="social-metric-label">Sentiment</span>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderSocialPosts(posts: SocialPost[]): string {
+    const top = posts.slice(0, 6);
+    const postsHtml = top.map(p => {
+      const timeAgo = this.timeAgo(p.postCreated);
+      const sentiment = p.sentimentDetail >= 4 ? 'positive' : p.sentimentDetail <= 2 ? 'negative' : 'neutral';
+      const followersStr = p.creatorFollowers >= 1000
+        ? `${(p.creatorFollowers / 1000).toFixed(p.creatorFollowers >= 100_000 ? 0 : 1)}K`
+        : String(p.creatorFollowers);
+      const interStr = this.formatNum(p.interactions);
+
+      const link = p.postUrl
+        ? `<a href="${escapeHtml(p.postUrl)}" target="_blank" rel="noopener" class="social-post-link">↗</a>`
+        : '';
+
+      return `
+        <div class="social-post">
+          <div class="social-post-header">
+            <span class="social-post-author">@${escapeHtml(p.creator)}</span>
+            <span class="social-post-followers">${followersStr} followers</span>
+            <span class="social-post-time">${timeAgo}</span>
+            ${link}
+          </div>
+          <div class="social-post-text">${escapeHtml(p.text)}</div>
+          <div class="social-post-meta">
+            <span class="social-post-interactions">💬 ${interStr}</span>
+            <span class="insight-sentiment-dot ${sentiment}"></span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `<div class="social-posts-list">${postsHtml}</div>`;
+  }
+
+  private formatNum(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}K`;
+    return String(n);
+  }
+
+  private timeAgo(unixTs: number): string {
+    if (!unixTs) return '';
+    const diff = Math.floor((Date.now() / 1000) - unixTs);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+    return `${Math.floor(diff / 86400)}d`;
+  }
+}
