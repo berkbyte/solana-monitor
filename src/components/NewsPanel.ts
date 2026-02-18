@@ -269,7 +269,7 @@ export class NewsPanel extends Panel {
     const html = items
       .map(
         (item) => `
-      <div class="item ${item.isAlert ? 'alert' : ''}" ${item.monitorColor ? `style="border-left-color: ${escapeHtml(item.monitorColor)}"` : ''}>
+      <div class="item ${item.isAlert ? 'alert' : ''}" >
         <div class="item-source">
           ${escapeHtml(item.source)}
           ${item.isAlert ? '<span class="alert-tag">ALERT</span>' : ''}
@@ -439,7 +439,7 @@ export class NewsPanel extends Panel {
     ].filter(Boolean).join(' ');
 
     return `
-      <div class="${itemClasses}" ${cluster.monitorColor ? `style="border-left-color: ${escapeHtml(cluster.monitorColor)}"` : ''} data-cluster-id="${escapeHtml(cluster.id)}" data-news-id="${escapeHtml(cluster.primaryLink)}">
+      <div class="${itemClasses}" data-cluster-id="${escapeHtml(cluster.id)}" data-news-id="${escapeHtml(cluster.primaryLink)}">
         <div class="item-source">
           ${tierBadge}
           ${escapeHtml(cluster.primarySource)}

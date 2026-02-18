@@ -3754,71 +3754,6 @@ a.prediction-link:hover {
   padding: 0 4px;
 }
 
-/* Monitors */
-.monitor-input-container {
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.monitor-input {
-  width: 100%;
-  padding: 8px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 11px;
-  margin-bottom: 8px;
-}
-
-.monitor-input::placeholder {
-  color: var(--text-dim);
-}
-
-.monitor-add-btn {
-  width: 100%;
-  padding: 6px;
-  background: var(--green);
-  border: none;
-  color: var(--bg);
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: bold;
-  cursor: pointer;
-  text-transform: uppercase;
-}
-
-.monitor-add-btn:hover {
-  opacity: 0.9;
-}
-
-.monitor-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  background: var(--border);
-  border-radius: 2px;
-  margin: 2px;
-  font-size: 10px;
-}
-
-.monitor-tag-color {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.monitor-tag-remove {
-  cursor: pointer;
-  opacity: 0.6;
-}
-
-.monitor-tag-remove:hover {
-  opacity: 1;
-}
-
 /* Loading */
 .loading {
   display: flex;
@@ -10310,7 +10245,7 @@ a.prediction-link:hover {
 }
 
 /* ============================================ */
-/* Social Pulse (X / LunarCrush)                */
+/* Social Pulse (X / SocialData)                */
 /* ============================================ */
 
 .insights-social-pulse {
@@ -10443,6 +10378,43 @@ a.prediction-link:hover {
 .social-post-interactions {
   font-size: 9px;
   color: var(--text-dim);
+}
+
+/* AI Social Commentary */
+.social-ai-commentary {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(153, 69, 255, 0.10), rgba(20, 241, 149, 0.06));
+  border: 1px solid rgba(153, 69, 255, 0.20);
+  border-radius: 6px;
+  position: relative;
+}
+
+.social-ai-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.social-ai-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.social-ai-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #9945ff;
+}
+
+.social-ai-text {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  word-break: break-word;
 }
 
 /* World Brief - AI Summary */

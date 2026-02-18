@@ -42,6 +42,7 @@ export interface SocialTopicSummary {
 export interface SocialPulseData {
   summary: SocialTopicSummary | null;
   posts: SocialPost[];
+  aiCommentary: string | null;
   fetchedAt: number;
 }
 
@@ -141,6 +142,42 @@ function computeSummaryFromTweets(tweets: NormalizedTweet[]): SocialTopicSummary
 }
 
 /* ------------------------------------------------------------------ */
+/*  AI Commentary via Groq                                             */
+/* ------------------------------------------------------------------ */
+
+async function fetchAICommentary(tweets: NormalizedTweet[]): Promise<string | null> {
+  if (tweets.length === 0) return null;
+
+  // Build tweet summaries for the LLM — include author, followers, text snippet
+  const headlines = tweets.slice(0, 15).map((t) => {
+    const followStr = t.followers >= 1000 ? `${(t.followers / 1000).toFixed(1)}K` : String(t.followers);
+    const engStr = `${t.likes}♥ ${t.retweets}🔁 ${t.views || 0}👀`;
+    return `@${t.handle} (${followStr} followers) [${engStr}]: ${t.text.slice(0, 200)}`;
+  });
+
+  try {
+    const res = await fetch('/api/groq-summarize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        headlines,
+        mode: 'social',
+        variant: 'full',
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    return data.summary || null;
+  } catch (err) {
+    console.warn('[SocialPulse] AI commentary failed:', err);
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Public API                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -159,9 +196,13 @@ export async function fetchSocialPulse(): Promise<SocialPulseData | null> {
   const posts = tweetsToSocialPosts(result.tweets);
   const summary = computeSummaryFromTweets(result.tweets);
 
+  // Fetch AI commentary in parallel (non-blocking for data display)
+  const aiCommentary = await fetchAICommentary(result.tweets).catch(() => null);
+
   cachedData = {
     summary,
     posts,
+    aiCommentary,
     fetchedAt: Date.now(),
   };
 

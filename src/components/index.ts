@@ -9,7 +9,6 @@ export * from './SearchModal';
 export * from './MobileWarningModal';
 export * from './SignalModal';
 export * from './PlaybackControl';
-export * from './MonitorPanel';
 
 // ============================================
 // SOLANA TERMINAL PANELS

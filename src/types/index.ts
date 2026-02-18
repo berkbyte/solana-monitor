@@ -17,7 +17,6 @@ export interface NewsItem {
   link: string;
   pubDate: Date;
   isAlert: boolean;
-  monitorColor?: string;
   tier?: number;
   threat?: import('@/services/threat-classifier').ThreatClassification;
   lat?: number;
@@ -48,7 +47,6 @@ export interface ClusteredEvent {
   firstSeen: Date;
   lastUpdated: Date;
   isAlert: boolean;
-  monitorColor?: string;
   velocity?: VelocityMetrics;
   threat?: import('@/services/threat-classifier').ThreatClassification;
   lat?: number;
@@ -276,16 +274,6 @@ export interface InternetOutage {
   cause?: string;
   outageType?: string;
   endDate?: Date;
-}
-
-// Core App Types
-export interface Monitor {
-  id: string;
-  keywords: string[];
-  color: string;
-  name?: string;
-  lat?: number;
-  lon?: number;
 }
 
 export interface PanelConfig {

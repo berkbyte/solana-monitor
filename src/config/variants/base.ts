@@ -47,24 +47,9 @@ export const REFRESH_INTERVALS = {
   hackernews: 5 * 60 * 1000,
 };
 
-// Monitor colors - Solana brand
-export const MONITOR_COLORS = [
-  '#14F195',  // Solana green
-  '#9945FF',  // Solana purple
-  '#FF6B35',  // Orange
-  '#00D4FF',  // Cyan
-  '#FFD700',  // Gold
-  '#FF4444',  // Red alert
-  '#44FFDD',  // Teal
-  '#FF44FF',  // Magenta
-  '#88FF44',  // Lime
-  '#4488FF',  // Blue
-];
-
 // Storage keys - Solana Terminal
 export const STORAGE_KEYS = {
   panels: 'solanaterminal-panels',
-  monitors: 'solanaterminal-monitors',
   mapLayers: 'solanaterminal-layers',
   disabledFeeds: 'solanaterminal-disabled-feeds',
   watchedWallets: 'solanaterminal-wallets',

@@ -64,7 +64,6 @@ export interface NewsItemCore {
   link: string;
   pubDate: Date;
   isAlert: boolean;
-  monitorColor?: string;
   tier?: number;
   threat?: import('./threat-classifier').ThreatClassification;
   lat?: number;
@@ -85,7 +84,6 @@ export interface ClusteredEventCore {
   firstSeen: Date;
   lastUpdated: Date;
   isAlert: boolean;
-  monitorColor?: string;
   velocity?: { sourcesPerHour?: number };
   threat?: import('./threat-classifier').ThreatClassification;
   lat?: number;
@@ -289,7 +287,6 @@ export function clusterNewsCore(
       firstSeen: new Date(Math.min(...dates)),
       lastUpdated: new Date(Math.max(...dates)),
       isAlert: cluster.some(i => i.isAlert),
-      monitorColor: cluster.find(i => i.monitorColor)?.monitorColor,
       threat,
       ...(clusterLat != null && { lat: clusterLat, lon: clusterLon }),
     };

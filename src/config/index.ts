@@ -7,7 +7,6 @@ export { SITE_VARIANT } from './variant';
 export {
   API_URLS,
   REFRESH_INTERVALS,
-  MONITOR_COLORS,
   STORAGE_KEYS,
 } from './variants/base';
 

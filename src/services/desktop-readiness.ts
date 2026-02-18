@@ -46,16 +46,6 @@ export const DESKTOP_PARITY_FEATURES: DesktopParityFeature[] = [
     priority: 1,
   },
   {
-    id: 'monitor',
-    panel: 'MonitorPanel',
-    serviceFiles: [],
-    apiRoutes: [],
-    apiHandlers: [],
-    locality: 'fully-local',
-    fallback: 'Keyword monitoring runs fully client-side on loaded news corpus.',
-    priority: 1,
-  },
-  {
     id: 'strategic-risk',
     panel: 'StrategicRiskPanel',
     serviceFiles: ['src/services/cached-risk-scores.ts'],
@@ -127,7 +117,7 @@ export function getDesktopReadinessChecks(localBackendEnabled: boolean): Desktop
   return [
     { id: 'startup', label: 'Desktop startup + sidecar API health', ready: localBackendEnabled },
     { id: 'map', label: 'Map rendering (local layers + static geo assets)', ready: true },
-    { id: 'core-intel', label: 'Core intelligence panels (Live News, Monitor, Strategic Risk)', ready: true },
+    { id: 'core-intel', label: 'Core intelligence panels (Live News, Strategic Risk)', ready: true },
     { id: 'summaries', label: 'Summaries (provider-backed or browser fallback)', ready: isFeatureAvailable('aiGroq') || isFeatureAvailable('aiOpenRouter') },
     { id: 'market', label: 'Market panel live data paths', ready: true },
     { id: 'live-tracking', label: 'At least one live-tracking mode (AIS or OpenSky)', ready: liveTrackingReady },

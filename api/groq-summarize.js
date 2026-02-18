@@ -136,6 +136,92 @@ export default async function handler(request) {
     const isTechVariant = variant === 'tech';
     const dateContext = `Current date: ${new Date().toISOString().split('T')[0]}.${isTechVariant ? '' : ' Donald Trump is the current US President (second term, inaugurated Jan 2025).'}`;
 
+    // ── Social Pulse AI Analysis mode ──
+    if (mode === 'social') {
+      systemPrompt = `${dateContext}
+
+You are a crypto social media analyst. Analyze real-time tweets about Solana and the crypto market.
+Write a sharp 3-4 sentence social intelligence briefing in English.
+
+Rules:
+- Identify the DOMINANT narrative/theme across the tweets
+- Note sentiment: is the community bullish, bearish, excited, fearful, or mixed?
+- Highlight any notable accounts or high-engagement tweets
+- If a specific token, project, or event is trending, name it
+- Be specific with numbers when available (followers, engagement)
+- Do NOT list tweets one by one — synthesize the overall picture
+- Start directly with the insight: "Solana community is buzzing about...", "Social sentiment has shifted to..."
+- Keep it concise, data-driven, and actionable`;
+
+      userPrompt = `Analyze these recent tweets about Solana from X/Twitter and provide a social intelligence briefing:\n\n${headlineText}`;
+
+      // Override: social mode uses more tokens for richer analysis
+      const socialResponse = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.4,
+          max_tokens: 250,
+          top_p: 0.9,
+        }),
+      });
+
+      if (!socialResponse.ok) {
+        const errorText = await socialResponse.text();
+        console.error('[Groq] Social analysis error:', socialResponse.status, errorText);
+        if (socialResponse.status === 429) {
+          return new Response(JSON.stringify({ error: 'Rate limited', fallback: true }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(JSON.stringify({ error: 'Groq API error', fallback: true }), {
+          status: socialResponse.status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const socialData = await socialResponse.json();
+      const socialSummary = socialData.choices?.[0]?.message?.content?.trim();
+
+      if (!socialSummary) {
+        return new Response(JSON.stringify({ error: 'Empty response', fallback: true }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Cache social analysis (shorter TTL)
+      await setCachedJson(cacheKey, {
+        summary: socialSummary,
+        model: MODEL,
+        timestamp: Date.now(),
+      }, 600); // 10 min cache for social data
+
+      return new Response(JSON.stringify({
+        summary: socialSummary,
+        model: MODEL,
+        provider: 'groq',
+        cached: false,
+        tokens: socialData.usage?.total_tokens || 0,
+      }), {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=120',
+        },
+      });
+    }
+
     if (mode === 'brief') {
       if (isTechVariant) {
         // Tech variant: focus on startups, AI, funding, product launches

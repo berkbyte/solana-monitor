@@ -1,6 +1,6 @@
 // SolanaApp.ts — Main application class for Solana Terminal
 // Replaces the original World Monitor App.ts with Solana-specific panels and data flows
-import type { NewsItem, Monitor, PanelConfig, MapLayers } from '@/types';
+import type { PanelConfig, MapLayers } from '@/types';
 import {
   FEEDS,
   REFRESH_INTERVALS,
@@ -31,7 +31,6 @@ import { fetchCATweets, clearCATweetCache } from '@/services/twitter-ca-search';
 
 import {
   Panel,
-  MonitorPanel,
   MobileWarningModal,
   NewsPanel,
   MarketPanel,
@@ -62,8 +61,6 @@ export class App {
   private readonly PANEL_ORDER_KEY = 'panel-order';
   private panels: Record<string, Panel> = {};
   private newsPanels: Record<string, NewsPanel> = {};
-  private allNews: NewsItem[] = [];
-  private monitors: Monitor[];
   private panelSettings: Record<string, PanelConfig>;
   private mapLayers: MapLayers;
   private globeModeSwitcher: GlobeModeSwitcher | null = null;
@@ -87,7 +84,6 @@ export class App {
     this.container = el;
 
     this.isMobile = isMobileDevice();
-    this.monitors = loadFromStorage<Monitor[]>(STORAGE_KEYS.monitors, []);
 
     const defaultLayers = this.isMobile ? MOBILE_DEFAULT_MAP_LAYERS : DEFAULT_MAP_LAYERS;
 
@@ -292,15 +288,6 @@ export class App {
     // Stablecoins
     this.panels['stablecoins'] = new StablecoinPanel();
 
-    // Monitor Panel
-    const monitorPanel = new MonitorPanel(this.monitors);
-    this.panels['monitors'] = monitorPanel;
-    monitorPanel.onChanged((monitors) => {
-      this.monitors = monitors;
-      saveToStorage(STORAGE_KEYS.monitors, monitors);
-      this.updateMonitorResults();
-    });
-
     // Token Analyze panel
     const tokenAnalyzePanel = new TokenAnalyzePanel();
     this.panels['token-analyze'] = tokenAnalyzePanel;
@@ -320,14 +307,9 @@ export class App {
     if (savedOrder.length > 0) {
       const missing = defaultOrder.filter(k => !savedOrder.includes(k));
       const valid = savedOrder.filter(k => defaultOrder.includes(k));
-      // Monitors always at end
-      const monitorsIdx = valid.indexOf('monitors');
-      if (monitorsIdx !== -1) valid.splice(monitorsIdx, 1);
-      const newPanels = missing.filter(k => k !== 'monitors');
       // Insert new panels after live-charts
       const insertIdx = Math.max(valid.indexOf('live-charts') + 1, 0);
-      valid.splice(insertIdx, 0, ...newPanels);
-      valid.push('monitors');
+      valid.splice(insertIdx, 0, ...missing);
       panelOrder = valid;
     }
 
@@ -336,13 +318,6 @@ export class App {
     if (liveChartsIdx > 0) {
       panelOrder.splice(liveChartsIdx, 1);
       panelOrder.unshift('live-charts');
-    }
-
-    // Monitors must be last
-    const monIdx = panelOrder.indexOf('monitors');
-    if (monIdx !== -1 && monIdx !== panelOrder.length - 1) {
-      panelOrder.splice(monIdx, 1);
-      panelOrder.push('monitors');
     }
 
     panelOrder.forEach((key: string) => {
@@ -496,7 +471,6 @@ export class App {
     this.inFlight.add('news');
     try {
       const items = await fetchCategoryFeeds(FEEDS, {});
-      this.allNews = items;
 
       // Cluster news (async)
       const clusters = await clusterNewsHybrid(items);
@@ -565,8 +539,7 @@ export class App {
         }
       }
 
-      // Update monitor panel
-      this.updateMonitorResults();
+      // Update panels done
     } catch (e) {
       console.error('[SolanaApp] Failed to load news:', e);
     } finally {
@@ -900,25 +873,6 @@ export class App {
         el.style.display = config.enabled ? '' : 'none';
       }
     });
-  }
-
-  // =========================================================================
-  // MONITOR RESULTS
-  // =========================================================================
-
-  private updateMonitorResults(): void {
-    const monitorPanel = this.panels['monitors'] as MonitorPanel | undefined;
-    if (!monitorPanel) return;
-
-    // Collect matching news items for all monitors
-    const matches = this.allNews.filter(item =>
-      this.monitors.some(monitor =>
-        monitor.keywords.some(kw =>
-          item.title.toLowerCase().includes(kw.toLowerCase())
-        )
-      )
-    );
-    monitorPanel.renderResults(matches);
   }
 
   // =========================================================================

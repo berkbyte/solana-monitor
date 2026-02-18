@@ -477,7 +477,7 @@ export class InsightsPanel extends Panel {
     `;
   }
 
-  /* ====================== SOCIAL PULSE (X / LunarCrush) ====================== */
+  /* ====================== SOCIAL PULSE (X / SocialData) ====================== */
 
   private renderSocialPulse(): string {
     const data = this.lastSocialPulse;
@@ -491,13 +491,27 @@ export class InsightsPanel extends Panel {
     }
 
     const summaryHtml = data.summary ? this.renderSocialSummary(data.summary) : '';
+    const aiHtml = data.aiCommentary ? this.renderAICommentary(data.aiCommentary) : '';
     const postsHtml = data.posts.length > 0 ? this.renderSocialPosts(data.posts) : '';
 
     return `
       <div class="insights-social-pulse">
         <div class="insights-section-title">𝕏 SOCIAL PULSE</div>
         ${summaryHtml}
+        ${aiHtml}
         ${postsHtml}
+      </div>
+    `;
+  }
+
+  private renderAICommentary(commentary: string): string {
+    return `
+      <div class="social-ai-commentary">
+        <div class="social-ai-header">
+          <span class="social-ai-icon">🤖</span>
+          <span class="social-ai-label">AI Social Analysis</span>
+        </div>
+        <div class="social-ai-text">${escapeHtml(commentary)}</div>
       </div>
     `;
   }
