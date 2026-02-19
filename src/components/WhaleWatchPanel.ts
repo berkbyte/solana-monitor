@@ -82,7 +82,7 @@ export class WhaleWatchPanel extends Panel {
       const dirIcon = entry.direction === 'in' ? '←' : '→';
 
       return `
-        <div class="whale-row severity-${escapeHtml(entry.severity)}" data-sig="${escapeHtml(entry.signature)}">
+        <div class="whale-row severity-${escapeHtml(entry.severity)}" data-wallet="${escapeHtml(entry.wallet)}">
           <div class="whale-icon" style="color: ${severityColor}">${typeIcon}</div>
           <div class="whale-info">
             <div class="whale-main">
@@ -101,12 +101,12 @@ export class WhaleWatchPanel extends Panel {
       `;
     }).join('');
 
-    // Click to open on Solscan
+    // Click to open wallet on Solscan
     this.content.querySelectorAll('.whale-row').forEach(row => {
       row.addEventListener('click', () => {
-        const sig = (row as HTMLElement).dataset.sig;
-        if (sig) {
-          window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener');
+        const wallet = (row as HTMLElement).dataset.wallet;
+        if (wallet) {
+          window.open(`https://solscan.io/account/${wallet}`, '_blank', 'noopener');
         }
       });
     });
