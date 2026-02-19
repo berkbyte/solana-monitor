@@ -1,5 +1,7 @@
 # Solana Monitor
 
+### 🌐 [solanamonitor.app](https://solanamonitor.app)
+
 **Real-time Solana intelligence dashboard** — live on-chain data, DeFi analytics, whale tracking, and market signals in a unified interface powered by deck.gl 3D globe.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -12,6 +14,12 @@
 
 <p align="center">
   <a href="https://x.com/solanamonitor">𝕏 @solanamonitor</a>
+</p>
+
+<p align="center">
+  <a href="https://solanamonitor.app">
+    <img src="public/screenshot.png" alt="Solana Monitor Dashboard" width="100%" />
+  </a>
 </p>
 
 ---

@@ -213,72 +213,249 @@
    TOKEN RADAR PANEL
    ============================================================ */
 
-.token-header-row {
+/* ── Sort Bar (segmented control) ── */
+.tr-sort-bar {
   display: flex;
-  gap: 4px;
-  margin-bottom: 4px;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  margin-left: 8px;
+  flex-shrink: 0;
 }
 
-.token-sort-btn {
-  padding: 2px 6px;
-  font-size: 0.65rem;
-  border: 1px solid var(--border);
+.tr-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  font-family: inherit;
+  border: none;
+  border-radius: 4px;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  border-radius: 3px;
-  font-family: inherit;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  text-transform: uppercase;
 }
 
-.token-sort-btn.active {
-  background: var(--solana-purple);
-  border-color: var(--solana-purple);
-  color: #fff;
+.tr-sort:hover {
+  color: var(--text);
+  background: var(--overlay-light);
 }
 
-.token-row {
+.tr-sort.active {
+  background: rgba(153, 69, 255, 0.2);
+  color: #c084fc;
+  box-shadow: 0 0 8px rgba(153, 69, 255, 0.15);
+}
+
+.tr-sort-ico {
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+/* ── Token Card ── */
+@keyframes tr-slide-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.tr-card {
+  display: flex;
+  align-items: stretch;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+  animation: tr-slide-in 0.25s ease both;
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.tr-card:last-child {
+  border-bottom: none;
+}
+
+.tr-card:hover {
+  background: var(--surface-hover);
+  transform: translateX(2px);
+}
+
+.tr-card:active {
+  transform: scale(0.995);
+}
+
+/* Left accent bar — color set by rug class */
+.tr-accent {
+  width: 3px;
+  flex-shrink: 0;
+  border-radius: 0 2px 2px 0;
+  transition: width 0.15s ease;
+}
+
+.tr-card:hover .tr-accent {
+  width: 4px;
+}
+
+.tr-accent.rug-safe    { background: #14F195; }
+.tr-accent.rug-caution { background: #FFD700; }
+.tr-accent.rug-risky   { background: #FF8844; }
+.tr-accent.rug-danger  { background: #FF4444; }
+
+/* Card body */
+.tr-body {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* Top row: identity + pricing */
+.tr-row-top {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border-subtle);
-  cursor: pointer;
-  transition: background 0.1s;
 }
 
-.token-row:hover {
-  background: var(--surface-hover);
+.tr-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
-.token-symbol {
+.tr-symbol {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--text);
+  letter-spacing: 0.3px;
+}
+
+.tr-age {
+  font-size: 0.58rem;
   font-weight: 600;
-  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: var(--overlay-light);
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+  flex-shrink: 0;
 }
 
-.token-name {
-  font-size: 0.65rem;
-  color: var(--text-dim);
+.tr-pricing {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
-.token-price {
+.tr-price {
+  font-size: 0.78rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.tr-change {
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+}
+
+.tr-change.up   { color: #14F195; }
+.tr-change.down { color: #FF4444; }
+
+/* Bottom row: name + stats */
+.tr-row-bot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tr-name {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.tr-stats {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.tr-vol,
+.tr-liq {
+  font-size: 0.6rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
   font-weight: 500;
 }
 
-.positive { color: var(--solana-green); }
-.negative { color: #FF4444; }
-
-.rug-score {
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 1px 4px;
-  border-radius: 3px;
+.tr-dot {
+  color: var(--text-ghost);
+  font-size: 0.55rem;
+  user-select: none;
 }
 
-.rug-safe { background: rgba(20, 241, 149, 0.15); color: var(--solana-green); }
+/* Rug badge */
+.tr-rug-badge {
+  font-size: 0.55rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.tr-rug-badge.rug-safe {
+  background: rgba(20, 241, 149, 0.12);
+  color: #14F195;
+}
+
+.tr-rug-badge.rug-caution {
+  background: rgba(255, 215, 0, 0.12);
+  color: #FFD700;
+}
+
+.tr-rug-badge.rug-risky {
+  background: rgba(255, 136, 68, 0.12);
+  color: #FF8844;
+}
+
+.tr-rug-badge.rug-danger {
+  background: rgba(255, 68, 68, 0.15);
+  color: #FF4444;
+  animation: tr-danger-pulse 2s ease-in-out infinite;
+}
+
+@keyframes tr-danger-pulse {
+  0%, 100% { box-shadow: none; }
+  50%      { box-shadow: 0 0 6px rgba(255, 68, 68, 0.3); }
+}
+
+/* Keep generic rug classes for backwards compat */
+.rug-safe    { background: rgba(20, 241, 149, 0.15); color: #14F195; }
 .rug-caution { background: rgba(255, 215, 0, 0.15); color: #FFD700; }
-.rug-risky { background: rgba(255, 136, 68, 0.15); color: #FF8844; }
-.rug-danger { background: rgba(255, 68, 68, 0.15); color: #FF4444; }
+.rug-risky   { background: rgba(255, 136, 68, 0.15); color: #FF8844; }
+.rug-danger  { background: rgba(255, 68, 68, 0.15); color: #FF4444; }
+
+.positive { color: var(--solana-green); }
+.negative { color: #FF4444; }
 
 /* ============================================================
    WHALE WATCH PANEL

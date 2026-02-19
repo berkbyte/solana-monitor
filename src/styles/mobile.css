@@ -729,7 +729,7 @@ html, body {
 
   /* Solana filter/sort pill buttons */
   .filter-btn,
-  .token-sort-btn {
+  .tr-sort {
     padding: 7px 12px !important;
     font-size: 0.72rem !important;
     min-height: 34px;
@@ -738,7 +738,7 @@ html, body {
   }
 
   .filter-btn:active,
-  .token-sort-btn:active {
+  .tr-sort:active {
     transform: scale(0.94);
   }
 
@@ -789,8 +789,7 @@ html, body {
   .whale-row,
   .defi-row,
   .defi-protocol-row,
-  .token-row,
-  .token-radar-item,
+  .tr-card,
   .mev-row,
   .nft-row,
   .lst-row,
@@ -803,7 +802,7 @@ html, body {
 
   .whale-row:active,
   .defi-protocol-row:active,
-  .token-row:active,
+  .tr-card:active,
   .news-item:active {
     background: var(--overlay-medium) !important;
   }
@@ -1039,34 +1038,38 @@ html, body {
   }
 
   /* ·· Token Radar ·· */
-  .token-header-row {
+  .tr-sort-bar {
+    margin-left: 4px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    flex-wrap: nowrap;
-    padding-bottom: 4px;
   }
 
-  .token-header-row::-webkit-scrollbar {
-    display: none;
+  .tr-sort-bar::-webkit-scrollbar { display: none; }
+
+  .tr-sort {
+    padding: 3px 6px;
+    font-size: 0.58rem;
   }
 
-  .token-sort-btn {
-    flex-shrink: 0;
-    white-space: nowrap;
-    border-radius: 6px;
+  .tr-body {
+    padding: 6px 8px;
   }
 
-  .token-row {
-    padding: 8px 10px;
+  .tr-symbol {
+    font-size: 0.78rem;
   }
 
-  .token-symbol {
-    font-size: 0.82rem;
+  .tr-name {
+    font-size: 0.6rem;
   }
 
-  .token-name {
-    font-size: 0.68rem;
+  .tr-price {
+    font-size: 0.72rem;
+  }
+
+  .tr-change {
+    font-size: 0.62rem;
   }
 
   /* ·· Token Analyze ·· */
