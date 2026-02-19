@@ -11,11 +11,12 @@ interface MacroSignalData {
     flowStructure: { status: string; btcReturn5: number | null; qqqReturn5: number | null };
     macroRegime: { status: string; qqqRoc20: number | null; xlpRoc20: number | null };
     technicalTrend: { status: string; btcPrice: number | null; sma50: number | null; sma200: number | null; vwap30d: number | null; mayerMultiple: number | null; sparkline: number[] };
+    solTrend?: { status: string; solPrice: number | null; sma50: number | null; sma200: number | null; vwap30d: number | null; mayerMultiple: number | null; solBtcRatio: number | null };
     hashRate: { status: string; change30d: number | null };
     miningCost: { status: string };
     fearGreed: { status: string; value: number | null; history: Array<{ value: number; date: string }> };
   };
-  meta: { qqqSparkline: number[] };
+  meta: { qqqSparkline: number[]; solSparkline?: number[] };
   unavailable?: boolean;
 }
 
@@ -127,6 +128,7 @@ export class MacroSignalsPanel extends Panel {
           ${this.renderSignalCard('Liquidity', s.liquidity.status, formatNum(s.liquidity.value), sparklineSvg(s.liquidity.sparkline, 60, 20, '#4fc3f7'), 'JPY 30d ROC', 'https://www.tradingview.com/symbols/JPYUSD/')}
           ${this.renderSignalCard('Flow', s.flowStructure.status, `BTC ${formatNum(s.flowStructure.btcReturn5)} / QQQ ${formatNum(s.flowStructure.qqqReturn5)}`, '', '5d returns', null)}
           ${this.renderSignalCard('Regime', s.macroRegime.status, `QQQ ${formatNum(s.macroRegime.qqqRoc20)} / XLP ${formatNum(s.macroRegime.xlpRoc20)}`, sparklineSvg(d.meta.qqqSparkline, 60, 20, '#ab47bc'), '20d ROC', 'https://www.tradingview.com/symbols/QQQ/')}
+          ${s.solTrend ? this.renderSignalCard('SOL Trend', s.solTrend.status, `$${s.solTrend.solPrice?.toLocaleString() ?? 'N/A'}`, sparklineSvg(d.meta.solSparkline ?? [], 60, 20, '#9945FF'), `SMA50: $${s.solTrend.sma50?.toLocaleString() ?? '-'} | Mayer: ${s.solTrend.mayerMultiple ?? '-'} | SOL/BTC: ${s.solTrend.solBtcRatio ?? '-'}`, 'https://www.tradingview.com/symbols/SOLUSD/') : ''}
           ${this.renderSignalCard('BTC Trend', s.technicalTrend.status, `$${s.technicalTrend.btcPrice?.toLocaleString() ?? 'N/A'}`, sparklineSvg(s.technicalTrend.sparkline, 60, 20, '#ff9800'), `SMA50: $${s.technicalTrend.sma50?.toLocaleString() ?? '-'} | VWAP: $${s.technicalTrend.vwap30d?.toLocaleString() ?? '-'} | Mayer: ${s.technicalTrend.mayerMultiple ?? '-'}`, 'https://www.tradingview.com/symbols/BTCUSD/')}
           ${this.renderSignalCard('Hash Rate', s.hashRate.status, formatNum(s.hashRate.change30d), '', '30d change', 'https://mempool.space/mining')}
           ${this.renderSignalCard('Mining', s.miningCost.status, '', '', 'Hashprice model', null)}

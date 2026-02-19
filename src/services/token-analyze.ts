@@ -191,12 +191,15 @@ export async function analyzeTokenCA(mint: string): Promise<TokenAnalysis | null
         mintRevoked = !riskNames.some((n: string) => n.includes('mint') && (n.includes('enabled') || n.includes('authority')));
         // Freeze authority
         freezeRevoked = !riskNames.some((n: string) => n.includes('freeze') && (n.includes('enabled') || n.includes('authority')));
-        // LP info
-        lpBurned = riskNames.some((n: string) => n.includes('burn')) ? false : true; // if "not burned" risk exists, it's NOT burned
-        lpBurned = !riskNames.some((n: string) => n.includes('lp') && n.includes('unlocked'));
+        // LP info — 'unlocked' in risk name means it's NOT burned/locked
+        lpBurned = !riskNames.some((n: string) => (n.includes('lp') || n.includes('burn')) && (n.includes('unlocked') || n.includes('not burned') || n.includes('not burnt')));
         liquidityLocked = !riskNames.some((n: string) => n.includes('liquid') && n.includes('unlocked'));
-        // Honeypot
-        honeypotRisk = riskNames.some((n: string) => n.includes('honeypot') || n.includes('copycat'));
+        // Honeypot — only flag if RugCheck explicitly warns about honeypot with a risk score
+        const honeypotRisks = risks.filter((r: { name: string; score?: number }) =>
+          (r.name?.toLowerCase().includes('honeypot') || r.name?.toLowerCase().includes('copycat')) &&
+          (typeof r.score !== 'number' || r.score > 0)
+        );
+        honeypotRisk = honeypotRisks.length > 0;
 
         // Top holder concentration from RugCheck
         if (typeof rug.topHolderConcentration === 'number') {
@@ -205,9 +208,10 @@ export async function analyzeTokenCA(mint: string): Promise<TokenAnalysis | null
           topHolderPercent = (rug.topHolders[0]?.pct || 0) * 100;
           top10HolderPercent = rug.topHolders.slice(0, 10).reduce((s: number, h: { pct?: number }) => s + (h.pct || 0), 0) * 100;
         }
-        // If RugCheck provides a score, use it as a hint
-        if (typeof rug.score === 'number' && rug.score < 300) {
-          honeypotRisk = true; // very low RugCheck score = danger
+        // RugCheck score: 0 = worst, ~1000 = best. Only flag extreme danger.
+        // Don't override honeypotRisk for moderate scores — causes false positives.
+        if (typeof rug.score === 'number' && rug.score < 50 && !honeypotRisk) {
+          honeypotRisk = true; // extremely low RugCheck score = strong danger signal
         }
         // Use token owner concentration from risks
         const concRisk = risks.find((r: { name: string }) => r.name?.toLowerCase().includes('concentration') || r.name?.toLowerCase().includes('top holder'));

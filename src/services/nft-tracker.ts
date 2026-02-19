@@ -41,47 +41,45 @@ const TOP_COLLECTIONS = [
 
 async function fetchFromMagicEden(): Promise<NFTCollection[]> {
   try {
-    // Fetch per-collection stats in parallel (the popular_collections endpoint is deprecated)
-    const results = await Promise.allSettled(
-      TOP_COLLECTIONS.map(async (col) => {
-        const res = await fetch(
-          `https://api-mainnet.magiceden.dev/v2/collections/${col.slug}/stats`,
-          {
-            signal: AbortSignal.timeout(8000),
-            headers: { 'Accept': 'application/json' },
-          }
-        );
-        if (!res.ok) return null;
-        const d = await res.json() as Record<string, unknown>;
+    // Use our serverless proxy to avoid CORS issues with Magic Eden
+    const res = await fetch('/api/nft-stats', {
+      signal: AbortSignal.timeout(15000),
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error(`Proxy returned ${res.status}`);
+    const data = await res.json() as { collections: Array<Record<string, unknown>> };
+    const items = data.collections || [];
+
+    const colMap = new Map(TOP_COLLECTIONS.map(c => [c.slug, c]));
+
+    const collections = items
+      .map((d) => {
+        const slug = (d.slug as string) || '';
+        const meta = colMap.get(slug);
         const floorPrice = ((d.floorPrice as number) || 0) / 1e9;
         const avgPrice = ((d.avgPrice24hr as number) || 0) / 1e9;
         const listed = (d.listedCount as number) || 0;
         const volumeAll = ((d.volumeAll as number) || 0) / 1e9;
         return {
-          name: col.name,
-          slug: col.slug,
+          name: meta?.name || slug,
+          slug,
           floorPrice,
-          volume24h: avgPrice * listed > 0 ? avgPrice * listed : 0, // best estimate
-          volumeChange24h: 0, // not available from this endpoint
+          volume24h: avgPrice * listed > 0 ? avgPrice * listed : 0,
+          volumeChange24h: 0,
           listed,
-          supply: col.supply,
-          holders: 0, // not available from this endpoint
-          marketplace: col.marketplace,
-          _volumeAll: volumeAll, // for sorting
+          supply: meta?.supply || 0,
+          holders: 0,
+          marketplace: meta?.marketplace || 'both' as const,
+          _volumeAll: volumeAll,
         } as NFTCollection & { _volumeAll: number };
       })
-    );
-
-    const collections = results
-      .filter((r): r is PromiseFulfilledResult<(NFTCollection & { _volumeAll: number }) | null> => r.status === 'fulfilled')
-      .map(r => r.value)
-      .filter((c): c is NFTCollection & { _volumeAll: number } => c !== null && c.floorPrice > 0)
+      .filter((c): c is NFTCollection & { _volumeAll: number } => c.floorPrice > 0)
       .sort((a, b) => b._volumeAll - a._volumeAll)
       .map(({ _volumeAll: _, ...c }) => c as NFTCollection);
 
     return collections;
   } catch (e) {
-    console.warn('[NFT] Magic Eden API failed:', e);
+    console.warn('[NFT] Magic Eden proxy failed:', e);
     return [];
   }
 }

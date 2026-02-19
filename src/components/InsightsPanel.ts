@@ -163,13 +163,13 @@ export class InsightsPanel extends Panel {
     const allScored = clusters
       .map(c => ({ cluster: c, score: this.getImportanceScore(c) }));
 
-    // Filter: require at least 2 sources OR alert OR elevated velocity OR high score
-    // High score (>100) means critical keywords were matched - don't require multi-source
+    // Filter: require at least 2 sources OR alert OR elevated velocity OR moderate score
+    // Score > 50 means crypto-relevant keywords matched - Solana stories often single-source
     const candidates = allScored.filter(({ cluster: c, score }) =>
       c.sourceCount >= 2 ||
       c.isAlert ||
       (c.velocity && c.velocity.level !== 'normal') ||
-      score > 100  // Critical stories bypass source requirement
+      score > 50  // Lower threshold so single-source Solana stories surface
     );
 
     // Sort by score

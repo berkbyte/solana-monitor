@@ -7,16 +7,19 @@ let cachedResponse = null;
 let cacheTimestamp = 0;
 
 const ETF_LIST = [
-  { ticker: 'IBIT', issuer: 'BlackRock' },
-  { ticker: 'FBTC', issuer: 'Fidelity' },
-  { ticker: 'ARKB', issuer: 'ARK/21Shares' },
-  { ticker: 'BITB', issuer: 'Bitwise' },
-  { ticker: 'GBTC', issuer: 'Grayscale' },
-  { ticker: 'HODL', issuer: 'VanEck' },
-  { ticker: 'BRRR', issuer: 'Valkyrie' },
-  { ticker: 'EZBC', issuer: 'Franklin' },
-  { ticker: 'BTCO', issuer: 'Invesco' },
-  { ticker: 'BTCW', issuer: 'WisdomTree' },
+  // Solana exposure products
+  { ticker: 'GSOL', issuer: 'Grayscale SOL Trust' },
+  { ticker: 'SOLQ', issuer: 'VanEck Solana ETN' },
+  { ticker: 'SOL11', issuer: '21Shares Solana ETP' },
+  // Bitcoin ETFs (reference)
+  { ticker: 'IBIT', issuer: 'BlackRock BTC' },
+  { ticker: 'FBTC', issuer: 'Fidelity BTC' },
+  { ticker: 'ARKB', issuer: 'ARK/21Shares BTC' },
+  { ticker: 'BITB', issuer: 'Bitwise BTC' },
+  { ticker: 'GBTC', issuer: 'Grayscale BTC' },
+  // Ethereum ETFs (reference)
+  { ticker: 'ETHA', issuer: 'BlackRock ETH' },
+  { ticker: 'FETH', issuer: 'Fidelity ETH' },
 ];
 
 async function fetchChart(ticker) {

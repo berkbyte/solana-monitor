@@ -387,12 +387,11 @@ export class App {
 
       const feesPanel = this.panels['priority-fees'] as PriorityFeesPanel;
 
-      // Compute actual percentiles from median fee
-      const median = status.medianPriorityFee || 1;
-      const p25 = Math.round(median * 0.5);
-      const p50 = median;
-      const p75 = Math.round(median * 2);
-      const p99 = Math.round(median * 5);
+      // Use real percentiles from RPC data
+      const p25 = status.feePercentiles?.p25 || 0;
+      const p50 = status.feePercentiles?.p50 || 0;
+      const p75 = status.feePercentiles?.p75 || 0;
+      const p99 = status.feePercentiles?.p99 || 0;
 
       feesPanel?.update({
         levels: feeLevels.map(l => ({
@@ -404,7 +403,7 @@ export class App {
         percentiles: { p25, p50, p75, p99 },
         avgFee: status.avgPriorityFee,
         medianFee: status.medianPriorityFee,
-        congestionLevel: status.tps > 3000 ? 'high' : status.tps > 1500 ? 'normal' : 'low',
+        congestionLevel: status.tps < 1000 ? 'high' : status.tps < 2500 ? 'normal' : 'low',
         recentSlots: 150,
         timestamp: Date.now(),
       });
@@ -533,12 +532,17 @@ export class App {
         });
 
         // For solana-news category, keep items from Solana-native sources + keyword-filtered general outlets
-        if (cat === 'solana-news' && filtered.length > 0) {
-          filtered = filtered.filter(item =>
+        if (cat === 'solana-news') {
+          const solanaFiltered = filtered.filter(item =>
             SOLANA_NATIVE_SOURCES.has(item.source || '') ||
             isSolanaRelevant(item.title) ||
             isSolanaRelevant(item.source || '')
           );
+          // If keyword filter returns items, use them; otherwise show all category items
+          if (solanaFiltered.length > 0) {
+            filtered = solanaFiltered;
+          }
+          // else: keep all filtered items from category (better than nothing)
         }
 
         // Only render if we have matching items (no fallback to all items)

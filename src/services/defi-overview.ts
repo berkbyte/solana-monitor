@@ -42,31 +42,60 @@ export async function fetchDeFiOverview(): Promise<DeFiSummary> {
   if (cachedSummary && now - lastFetch < CACHE_TTL) return cachedSummary;
 
   try {
+    // Fetch Solana chain TVL from dedicated endpoint
+    let solanaTotalTvl = 0;
+    try {
+      const chainRes = await fetch('https://api.llama.fi/v2/chains', { signal: AbortSignal.timeout(8000) });
+      if (chainRes.ok) {
+        const chains = await chainRes.json();
+        const solanaChain = chains.find((c: Record<string, unknown>) => c.name === 'Solana');
+        if (solanaChain && typeof solanaChain.tvl === 'number') {
+          solanaTotalTvl = solanaChain.tvl;
+        }
+      }
+    } catch { /* use sum of protocols below */ }
+
     const res = await fetch(`${DEFILLAMA_API}/protocols`);
     const protocols = await res.json();
 
-    // Filter Solana protocols
-    const solanaProtocols = protocols
-      .filter((p: Record<string, unknown>) => {
-        const chains = p.chains as string[] | undefined;
-        return chains && chains.includes('Solana');
-      })
-      .map((p: Record<string, unknown>) => ({
+    // Filter Solana protocols and use Solana-specific TVL where possible
+    const solanaProtocols: ProtocolData[] = [];
+    for (const p of protocols) {
+      const chains = p.chains as string[] | undefined;
+      if (!chains || !chains.includes('Solana')) continue;
+
+      // Use chainTvls.Solana if available, otherwise fallback to total TVL for Solana-only protocols
+      let tvl = 0;
+      if (p.chainTvls && typeof p.chainTvls.Solana === 'number') {
+        tvl = p.chainTvls.Solana;
+      } else if (chains.length === 1 && chains[0] === 'Solana') {
+        // Single-chain Solana protocol — total TVL is Solana TVL
+        tvl = (p.tvl as number) || 0;
+      } else {
+        // Multi-chain without breakdown — estimate proportionally
+        // This is better than showing total multi-chain TVL as Solana
+        tvl = ((p.tvl as number) || 0) / chains.length;
+      }
+      if (tvl <= 0) continue;
+
+      solanaProtocols.push({
         name: p.name as string,
         slug: p.slug as string,
-        tvl: (p.tvl as number) || 0,
+        tvl,
         tvlChange24h: (p.change_1d as number) || 0,
         tvlChange7d: (p.change_7d as number) || 0,
         category: (p.category as string) || 'Other',
-        chains: (p.chains as string[]) || [],
+        chains: chains,
         logo: (p.logo as string) || '',
         url: (p.url as string) || '',
-      }))
-      .sort((a: ProtocolData, b: ProtocolData) => b.tvl - a.tvl);
+      });
+    }
+    solanaProtocols.sort((a, b) => b.tvl - a.tvl);
 
-    const totalTvl = solanaProtocols.reduce((sum: number, p: ProtocolData) => sum + p.tvl, 0);
-    const avgChange = solanaProtocols.length > 0
-      ? solanaProtocols.reduce((sum: number, p: ProtocolData) => sum + p.tvlChange24h, 0) / solanaProtocols.length
+    const totalTvl = solanaTotalTvl > 0 ? solanaTotalTvl : solanaProtocols.reduce((sum, p) => sum + p.tvl, 0);
+    const topProtocols = solanaProtocols.filter(p => p.tvlChange24h !== 0);
+    const avgChange = topProtocols.length > 0
+      ? topProtocols.slice(0, 20).reduce((sum, p) => sum + p.tvlChange24h, 0) / Math.min(20, topProtocols.length)
       : 0;
 
     // Liquid staking data — TVL from DeFi Llama, APY from DeFi Llama yields
@@ -101,7 +130,7 @@ export async function fetchDeFiOverview(): Promise<DeFiSummary> {
     // Compute total staked SOL for stake share calculation
     const totalStakedSol = solanaProtocols
       .filter((p: ProtocolData) => p.category === 'Liquid Staking')
-      .reduce((s: number, p: ProtocolData) => s + p.tvl, 0) || totalTvl * 0.3;
+      .reduce((s: number, p: ProtocolData) => s + p.tvl, 0) || totalTvl * 0.15; // LST is ~15% of total TVL
 
     // Build liquid staking entries
     const liquidStaking: LiquidStakingData[] = lstConfigs.map(cfg => {

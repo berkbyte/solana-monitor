@@ -116,13 +116,14 @@ export default async function handler(req) {
 
   try {
     const yahooBase = 'https://query1.finance.yahoo.com/v8/finance/chart';
-    const [jpyChart, btcChart, qqqChart, xlpChart, fearGreed, mempoolHash] = await Promise.allSettled([
+    const [jpyChart, btcChart, qqqChart, xlpChart, fearGreed, mempoolHash, solChart] = await Promise.allSettled([
       fetchJSON(`${yahooBase}/JPY=X?range=1y&interval=1d`),
       fetchJSON(`${yahooBase}/BTC-USD?range=1y&interval=1d`),
       fetchJSON(`${yahooBase}/QQQ?range=1y&interval=1d`),
       fetchJSON(`${yahooBase}/XLP?range=1y&interval=1d`),
       fetchJSON('https://api.alternative.me/fng/?limit=30&format=json'),
       fetchJSON('https://mempool.space/api/v1/mining/hashrate/1m'),
+      fetchJSON(`${yahooBase}/SOL-USD?range=1y&interval=1d`),
     ]);
 
     const jpyPrices = jpyChart.status === 'fulfilled' ? extractClosePrices(jpyChart.value) : [];
@@ -159,6 +160,45 @@ export default async function handler(req) {
     const btcSma50 = sma(btcPrices, 50);
     const btcSma200 = sma(btcPrices, 200);
     const btcCurrent = btcPrices.length > 0 ? btcPrices[btcPrices.length - 1] : null;
+
+    // SOL price data
+    const solPrices = solChart.status === 'fulfilled' ? extractClosePrices(solChart.value) : [];
+    const solAligned = solChart.status === 'fulfilled' ? extractAlignedPriceVolume(solChart.value) : [];
+    const solCurrent = solPrices.length > 0 ? solPrices[solPrices.length - 1] : null;
+    const solSma50 = sma(solPrices, 50);
+    const solSma200 = sma(solPrices, 200);
+    const solReturn5 = rateOfChange(solPrices, 5);
+    const solReturn20 = rateOfChange(solPrices, 20);
+
+    // SOL VWAP 30d
+    let solVwap = null;
+    if (solAligned.length >= 30) {
+      const last30 = solAligned.slice(-30);
+      let sumPV = 0, sumV = 0;
+      for (const { price, volume } of last30) { sumPV += price * volume; sumV += volume; }
+      if (sumV > 0) solVwap = +(sumPV / sumV).toFixed(2);
+    }
+
+    // SOL technical trend
+    let solTrendStatus = 'UNKNOWN';
+    let solMayerMultiple = null;
+    if (solCurrent && solSma50) {
+      const aboveSma = solCurrent > solSma50 * 1.02;
+      const belowSma = solCurrent < solSma50 * 0.98;
+      const aboveVwap = solVwap ? solCurrent > solVwap : null;
+      if (aboveSma && aboveVwap !== false) solTrendStatus = 'BULLISH';
+      else if (belowSma && aboveVwap !== true) solTrendStatus = 'BEARISH';
+      else solTrendStatus = 'NEUTRAL';
+    }
+    if (solCurrent && solSma200) {
+      solMayerMultiple = +(solCurrent / solSma200).toFixed(2);
+    }
+
+    // SOL/BTC relative strength
+    let solBtcRatio = null;
+    if (solCurrent && btcCurrent) {
+      solBtcRatio = +(solCurrent / btcCurrent * 1000000).toFixed(2); // SOL price per million sats
+    }
 
     // Compute VWAP from aligned price/volume pairs (30d)
     let btcVwap = null;
@@ -226,15 +266,17 @@ export default async function handler(req) {
     const btcSparkline = btcPrices.slice(-30);
     const qqqSparkline = qqqPrices.slice(-30);
     const jpySparkline = jpyPrices.slice(-30);
+    const solSparkline = solPrices.slice(-30);
 
-    // Overall Verdict
+    // Overall Verdict — now includes SOL trend as primary signal
     let bullishCount = 0;
     let totalCount = 0;
     const signals = [
+      { name: 'SOL Trend', status: solTrendStatus, bullish: solTrendStatus === 'BULLISH' },
       { name: 'Liquidity', status: liquidityStatus, bullish: liquidityStatus === 'NORMAL' },
       { name: 'Flow Structure', status: flowStatus, bullish: flowStatus === 'ALIGNED' },
       { name: 'Macro Regime', status: regimeStatus, bullish: regimeStatus === 'RISK-ON' },
-      { name: 'Technical Trend', status: trendStatus, bullish: trendStatus === 'BULLISH' },
+      { name: 'BTC Trend', status: trendStatus, bullish: trendStatus === 'BULLISH' },
       { name: 'Hash Rate', status: hashStatus, bullish: hashStatus === 'GROWING' },
       { name: 'Mining Cost', status: miningStatus, bullish: miningStatus === 'PROFITABLE' },
       { name: 'Fear & Greed', status: fgLabel, bullish: fgValue !== null && fgValue > 50 },
@@ -255,6 +297,7 @@ export default async function handler(req) {
       bullishCount,
       totalCount,
       signals: {
+        solTrend: { status: solTrendStatus, solPrice: solCurrent, sma50: solSma50 ? +solSma50.toFixed(2) : null, sma200: solSma200 ? +solSma200.toFixed(2) : null, vwap30d: solVwap, mayerMultiple: solMayerMultiple, return5d: solReturn5 !== null ? +solReturn5.toFixed(2) : null, return20d: solReturn20 !== null ? +solReturn20.toFixed(2) : null, solBtcRatio, sparkline: solSparkline },
         liquidity: { status: liquidityStatus, value: jpyRoc30 !== null ? +jpyRoc30.toFixed(2) : null, sparkline: jpySparkline },
         flowStructure: { status: flowStatus, btcReturn5: btcReturn5 !== null ? +btcReturn5.toFixed(2) : null, qqqReturn5: qqqReturn5 !== null ? +qqqReturn5.toFixed(2) : null },
         macroRegime: { status: regimeStatus, qqqRoc20: qqqRoc20 !== null ? +qqqRoc20.toFixed(2) : null, xlpRoc20: xlpRoc20 !== null ? +xlpRoc20.toFixed(2) : null },
@@ -263,7 +306,7 @@ export default async function handler(req) {
         miningCost: { status: miningStatus },
         fearGreed: { status: fgLabel, value: fgValue, history: fgHistory },
       },
-      meta: { qqqSparkline },
+      meta: { qqqSparkline, solSparkline },
     };
 
     cachedResponse = result;

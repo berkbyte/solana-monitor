@@ -105,7 +105,7 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
   const priceMap = prices.status === 'fulfilled' ? prices.value : new Map<string, number>();
   const solPrice = priceMap.get('SOL_USD') || 150;
 
-  // Fetch TVL data from DeFi Llama protocols
+  // Fetch TVL data from DeFi Llama protocols — use Solana-specific TVL
   let protocolTvls = new Map<string, number>();
   try {
     const res = await fetch('https://api.llama.fi/protocols', { signal: AbortSignal.timeout(8000) });
@@ -114,10 +114,22 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
       for (const cfg of LST_CONFIG) {
         const protocol = protocols.find((p: Record<string, unknown>) =>
           (p.name as string)?.toLowerCase().includes(cfg.name.toLowerCase()) &&
-          (p.chains as string[])?.includes('Solana')
+          (p.chains as string[])?.includes('Solana') &&
+          ((p.category as string) === 'Liquid Staking' || cfg.name === 'Sanctum Infinity')
         );
-        if (protocol && typeof protocol.tvl === 'number') {
-          protocolTvls.set(cfg.mint, protocol.tvl);
+        if (protocol) {
+          // Use Solana-specific TVL if available
+          const chainTvls = protocol.chainTvls as Record<string, number> | undefined;
+          const solanaTvl = chainTvls?.Solana;
+          if (typeof solanaTvl === 'number' && solanaTvl > 0) {
+            protocolTvls.set(cfg.mint, solanaTvl);
+          } else if (typeof protocol.tvl === 'number') {
+            // Single-chain LST protocols — total TVL is Solana TVL
+            const chains = protocol.chains as string[];
+            if (chains?.length === 1) {
+              protocolTvls.set(cfg.mint, protocol.tvl);
+            }
+          }
         }
       }
     }
@@ -134,13 +146,14 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
     'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v': 500_000_000,
   };
 
-  // Default APYs
+  // Default APYs — only used when DeFi Llama yields API fails
+  // These are approximate and clearly labeled as fallback
   const defaultApys: Record<string, number> = {
-    'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': 7.2,
-    'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': 7.8,
-    'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1': 7.0,
-    '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm': 7.5,
-    'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v': 7.9,
+    'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': 0,
+    'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': 0,
+    'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1': 0,
+    '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm': 0,
+    'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v': 0,
   };
 
   // Fetch real total staked SOL from RPC
@@ -189,10 +202,11 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
     const pegDeviation = (priceSol - 1.0) * 100;
     const marketShare = (tvlSol / totalSolStaked) * 100;
 
-    // Decompose APY into components (rough estimates)
-    const stakingBase = 6.5;
-    const mevComponent = cfg.symbol === 'jitoSOL' ? 1.5 : 0.3;
-    const emissions = Math.max(0, apy - stakingBase - mevComponent);
+    // APY breakdown — use total APY as staking component
+    // We don't have granular MEV/emissions data, so report total as base staking
+    const stakingBase = apy;
+    const mevComponent = 0;
+    const emissions = 0;
 
     return {
       name: cfg.name,

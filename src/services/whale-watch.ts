@@ -90,10 +90,10 @@ export const KNOWN_WALLETS: Record<string, string> = {
 };
 
 const WHALE_THRESHOLDS = {
-  low: 100_000,
-  medium: 500_000,
-  high: 1_000_000,
-  critical: 5_000_000,
+  low: 10_000,      // $10K — catch more whale activity
+  medium: 100_000,
+  high: 500_000,
+  critical: 2_000_000,
 };
 
 let whaleHistory: WhaleTransaction[] = [];
@@ -235,9 +235,9 @@ async function fetchFromPublicRpc(): Promise<WhaleTransaction[]> {
   const results: WhaleTransaction[] = [];
   const solPrice = await fetchSolPrice();
 
-  // Check 2 wallets per refresh (rotating), keeps us well within free rate limits
+  // Check 5 wallets per refresh (rotating), keeps us within free rate limits
   const walletsToCheck: [string, string][] = [];
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 5; i++) {
     walletsToCheck.push(walletEntries[rpcWalletIndex % walletEntries.length] as [string, string]);
     rpcWalletIndex++;
   }
