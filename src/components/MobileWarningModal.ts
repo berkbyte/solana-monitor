@@ -13,8 +13,8 @@ export class MobileWarningModal {
           <span class="mobile-warning-title">Mobile View</span>
         </div>
         <div class="mobile-warning-content">
-          <p>You're viewing a simplified mobile version focused on MENA region with essential layers enabled.</p>
-          <p>Tip: Use the view buttons (GLOBAL/US/MENA) to switch regions. Tap markers to see details.</p>
+          <p>You're viewing a mobile-optimized version with essential panels and layers enabled.</p>
+          <p>Tip: Scroll down past the globe to see all data panels. Tap markers on the globe for details.</p>
         </div>
         <div class="mobile-warning-footer">
           <label class="mobile-warning-remember">

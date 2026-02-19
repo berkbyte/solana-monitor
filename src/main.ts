@@ -1,5 +1,6 @@
 import './styles/main.css';
 import './styles/solana-terminal.css';
+import './styles/mobile.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { inject } from '@vercel/analytics';
 import { App } from './SolanaApp';

@@ -1,0 +1,837 @@
+/* ============================================================
+   MOBILE RESPONSIVE OVERRIDES
+   Comprehensive mobile-first fixes for Solana Terminal
+   Imported after main.css and solana-terminal.css
+   ============================================================ */
+
+/* ============================================================
+   0. ROOT: Prevent horizontal scroll
+   ============================================================ */
+
+html, body {
+  overflow-x: hidden !important;
+  -webkit-text-size-adjust: 100%;
+}
+
+#app {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* ============================================================
+   1. TABLET BREAKPOINT (768px – 1024px)
+   Show 2-column layout on tablets instead of single-column
+   ============================================================ */
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .panels-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    display: grid !important;
+  }
+
+  .panel-wide {
+    grid-column: span 2;
+  }
+
+  .header {
+    padding: 10px 16px;
+  }
+
+  .header-ca-addr {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+  }
+}
+
+/* ============================================================
+   2. MOBILE BREAKPOINT (max-width: 768px)
+   Primary mobile optimizations
+   ============================================================ */
+
+@media (max-width: 768px) {
+
+  /* --- ROOT / BODY --- */
+  body {
+    font-size: 13px;
+    min-width: 0 !important;
+  }
+
+  #app {
+    min-width: 0 !important;
+  }
+
+  /* --- HEADER --- */
+  .header {
+    height: auto !important;
+    min-height: 48px;
+    padding: 8px 12px !important;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .header-left {
+    flex: 1 1 auto;
+    gap: 8px !important;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .logo {
+    font-size: 15px !important;
+    letter-spacing: 1.5px;
+  }
+
+  .version {
+    display: none;
+  }
+
+  /* Hide the full CA address button — too long for mobile */
+  .header-ca-btn {
+    max-width: 140px;
+    overflow: hidden;
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+  }
+
+  .header-ca-addr {
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+    font-size: 11px !important;
+  }
+
+  .header-ca-label {
+    font-size: 11px !important;
+  }
+
+  /* Hide X handle text, keep icon */
+  .header-x-link span {
+    display: none;
+  }
+
+  .header-x-link .header-x-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Hide pump.fun external link on mobile */
+  .header-pumpfun-link {
+    display: none !important;
+  }
+
+  .header-right {
+    gap: 6px !important;
+    flex-shrink: 0;
+  }
+
+  /* Hide "Open-source & Free" label */
+  .header-opensource-label {
+    display: none !important;
+  }
+
+  /* Hide "Github" text, keep icon */
+  .header-github-link span {
+    display: none;
+  }
+
+  .header-github-link .header-github-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Touch-friendly header buttons */
+  .theme-toggle-btn {
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .settings-btn,
+  .fullscreen-btn {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 8px !important;
+    font-size: 14px !important;
+  }
+
+  .search-btn {
+    min-height: 40px;
+    padding: 8px 12px !important;
+  }
+
+  .search-btn kbd {
+    display: none !important;
+  }
+
+  /* --- MAP SECTION --- */
+  .map-section {
+    height: 35vh !important;
+    min-height: 200px !important;
+    max-height: 40vh !important;
+  }
+
+  .map-resize-handle,
+  .map-pin-btn {
+    display: none !important;
+  }
+
+  /* --- PANEL GRID --- */
+  .panels-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 6px !important;
+    padding: 6px !important;
+  }
+
+  /* Reset all span classes on mobile */
+  .panel.span-1,
+  .panel.span-2,
+  .panel.span-3,
+  .panel.span-4 {
+    grid-row: unset !important;
+    min-height: unset !important;
+  }
+
+  .panel {
+    width: 100% !important;
+    min-height: 250px !important;
+    max-height: 380px !important;
+    cursor: default !important;
+  }
+
+  /* Wide panel (Live Charts) — single column, smaller */
+  .panel-wide {
+    grid-column: unset !important;
+    grid-row: unset !important;
+    min-height: 280px !important;
+    max-height: 400px !important;
+  }
+
+  /* Panel resize handles disabled on mobile */
+  .panel-resize-handle {
+    display: none !important;
+  }
+
+  /* --- PANEL HEADER --- */
+  .panel-header {
+    padding: 8px 10px !important;
+    gap: 6px;
+  }
+
+  .panel-title {
+    font-size: 12px !important;
+  }
+
+  .panel-count {
+    font-size: 11px !important;
+  }
+
+  .panel-data-badge {
+    font-size: 10px !important;
+  }
+
+  .panel-info-btn {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 12px !important;
+    min-width: 24px;
+    min-height: 24px;
+  }
+
+  /* Panel content overflow protection */
+  .panel-content {
+    overflow-x: hidden !important;
+    padding: 6px !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* --- MODAL / SETTINGS --- */
+  .modal-overlay {
+    padding: 10px !important;
+    align-items: flex-start !important;
+    padding-top: 5vh !important;
+  }
+
+  .modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 85vh !important;
+    border-radius: 12px !important;
+  }
+
+  /* Panel toggle grid — 2 columns on mobile */
+  .panel-toggle-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 6px !important;
+  }
+
+  .panel-toggle-item {
+    padding: 10px 8px !important;
+    min-height: 44px;
+  }
+
+  .panel-toggle-label {
+    font-size: 10px !important;
+  }
+
+  .panel-toggle-checkbox {
+    width: 20px !important;
+    height: 20px !important;
+    font-size: 12px !important;
+  }
+
+  /* Sources grid — 2 columns on mobile */
+  .sources-toggle-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .source-toggle-item {
+    padding: 8px !important;
+    min-height: 44px;
+  }
+
+  /* --- SEARCH MODAL --- */
+  .search-overlay {
+    padding-top: 5vh !important;
+  }
+
+  .search-modal {
+    width: 95vw !important;
+    max-width: 95vw !important;
+  }
+
+  .search-results {
+    max-height: 60vh !important;
+  }
+
+  .search-result-item {
+    padding: 12px 14px !important;
+    min-height: 44px;
+  }
+
+  /* --- MAP POPUP --- */
+  .map-popup {
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    max-width: calc(100vw - 16px) !important;
+    max-height: 60vh !important;
+    bottom: auto !important;
+  }
+
+  /* --- FONT SIZE BUMPS FOR READABILITY --- */
+  .news-item,
+  .news-title {
+    font-size: 12px !important;
+  }
+
+  .news-meta,
+  .news-source {
+    font-size: 11px !important;
+  }
+
+  /* --- PANEL INFO TOOLTIP --- */
+  .panel-info-tooltip {
+    position: fixed !important;
+    left: 10px !important;
+    right: 10px !important;
+    top: auto !important;
+    bottom: 10px !important;
+    transform: none !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    z-index: 9999 !important;
+  }
+
+  .panel-info-tooltip::before,
+  .panel-info-tooltip::after {
+    display: none !important;
+  }
+}
+
+/* ============================================================
+   3. SMALL MOBILE (max-width: 480px)
+   Extra small phones
+   ============================================================ */
+
+@media (max-width: 480px) {
+
+  .header {
+    padding: 6px 8px !important;
+    flex-wrap: wrap;
+  }
+
+  .header-left {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+
+  .header-right {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+
+  .logo {
+    font-size: 13px !important;
+    letter-spacing: 1px;
+  }
+
+  /* Hide CA button entirely on very small screens */
+  .header-ca-btn {
+    display: none !important;
+  }
+
+  /* Map even smaller on tiny phones */
+  .map-section {
+    height: 30vh !important;
+    min-height: 180px !important;
+    max-height: 35vh !important;
+  }
+
+  .panel {
+    min-height: 220px !important;
+    max-height: 350px !important;
+  }
+
+  /* Panel toggle grid — single column */
+  .panel-toggle-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Sources grid — single column */
+  .sources-toggle-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ============================================================
+   4. TOUCH DEVICE ENHANCEMENTS
+   Better touch targets for all pointer:coarse devices
+   ============================================================ */
+
+@media (pointer: coarse) {
+
+  /* Ensure minimum touch target sizes (44px per WCAG/Apple HIG) */
+  .theme-toggle-btn,
+  .settings-btn,
+  .fullscreen-btn,
+  .search-btn,
+  .map-control-btn,
+  .modal-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Solana-specific filter buttons */
+  .filter-btn,
+  .token-sort-btn {
+    padding: 6px 10px !important;
+    font-size: 0.75rem !important;
+    min-height: 36px;
+  }
+
+  .globe-mode-btn {
+    padding: 8px 12px !important;
+    font-size: 0.75rem !important;
+    min-height: 36px;
+  }
+
+  /* Panel toggle items */
+  .panel-toggle-item,
+  .source-toggle-item {
+    min-height: 44px;
+  }
+
+  /* Whale/DeFi/MEV filter controls */
+  .whale-filter-controls .filter-btn,
+  .pump-sort-controls .filter-btn,
+  .defi-view-controls .filter-btn {
+    padding: 6px 10px !important;
+    min-height: 36px;
+  }
+
+  /* Settings tabs */
+  .settings-tab {
+    padding: 10px 16px !important;
+    min-height: 44px;
+    font-size: 13px !important;
+  }
+
+  /* Tab bar in live-charts */
+  .live-charts-tab-btn {
+    padding: 8px 12px !important;
+    min-height: 36px;
+  }
+
+  /* Search result items need bigger tap targets */
+  .search-result-item {
+    padding: 12px 16px !important;
+    min-height: 48px;
+  }
+
+  /* DeFi rows, Whale rows, Token rows — ensure tappable */
+  .whale-row,
+  .defi-row,
+  .token-radar-item,
+  .mev-row,
+  .nft-row,
+  .lst-row,
+  .gov-row {
+    min-height: 44px;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+
+  /* Disable drag on touch devices — prevents accidental drags */
+  .panel {
+    cursor: default !important;
+    -webkit-user-drag: none;
+  }
+
+  /* Disable panel reordering on touch */
+  .panel.dragging {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  /* Smoother scroll on mobile */
+  .panel-content,
+  .main-content,
+  .search-results {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+}
+
+/* ============================================================
+   5. SETTINGS WINDOW — MOBILE
+   ============================================================ */
+
+@media (max-width: 768px) {
+
+  .settings-shell {
+    height: 100dvh;
+    height: 100vh; /* fallback */
+  }
+
+  .settings-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    justify-content: flex-start;
+    gap: 0;
+    padding: 8px 8px 0;
+  }
+
+  .settings-tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 10px 14px !important;
+    font-size: 12px;
+  }
+
+  .settings-tab-panels {
+    padding: 10px 12px;
+  }
+
+  .settings-runtime-panel .runtime-config-list {
+    grid-template-columns: 1fr !important;
+  }
+
+  .settings-runtime-panel .runtime-feature {
+    padding: 10px;
+  }
+
+  .settings-footer {
+    padding: 10px 12px;
+  }
+
+  .settings-btn {
+    min-height: 44px;
+    padding: 10px 18px !important;
+  }
+
+  /* Diagnostics table horizontal scroll */
+  .diag-traffic-log {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .diag-table {
+    min-width: 500px;
+  }
+
+  .debug-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .debug-actions button {
+    flex: 1 1 calc(50% - 6px);
+    min-height: 40px;
+  }
+}
+
+/* ============================================================
+   6. LANDSCAPE PHONE
+   ============================================================ */
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .map-section {
+    height: 50vh !important;
+    min-height: 150px !important;
+  }
+
+  .header {
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 4px 10px !important;
+  }
+
+  .logo {
+    font-size: 13px !important;
+  }
+
+  .search-overlay {
+    padding-top: 2vh !important;
+  }
+
+  .search-results {
+    max-height: 50vh !important;
+  }
+}
+
+/* ============================================================
+   7. COUNTRY BRIEF — MOBILE FIXES
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .country-brief-overlay {
+    padding: 0 !important;
+  }
+
+  .country-brief-page {
+    margin: 0 !important;
+    max-width: 100vw !important;
+    min-height: 100dvh;
+    min-height: 100vh; /* fallback */
+    border-radius: 0 !important;
+    border: none !important;
+  }
+}
+
+/* ============================================================
+   8. LIVE CHARTS PANEL — MOBILE
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .live-charts-tab-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 0;
+    padding: 4px 6px;
+  }
+
+  .live-charts-tab-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 10px;
+  }
+
+  .live-charts-iframe-container,
+  .live-charts-frame {
+    min-height: 250px !important;
+  }
+}
+
+/* ============================================================
+   9. SOLANA COMPONENT OVERRIDES — MOBILE
+   ============================================================ */
+
+@media (max-width: 768px) {
+
+  /* Network status grid — single column */
+  .net-status-grid {
+    grid-template-columns: 1fr !important;
+    gap: 6px;
+  }
+
+  .net-stat-value {
+    font-size: 1rem !important;
+  }
+
+  .net-stat-label {
+    font-size: 0.7rem !important;
+  }
+
+  /* Token radar */
+  .token-radar-header {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .token-sort-controls {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+  }
+
+  .token-sort-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  /* Token analyze */
+  .ta-stats {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .ta-summary {
+    font-size: 0.8rem !important;
+    line-height: 1.5;
+  }
+
+  /* Whale watch */
+  .whale-row {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 4px;
+  }
+
+  .whale-addr {
+    max-width: 100% !important;
+    font-size: 0.7rem !important;
+  }
+
+  .whale-detail {
+    font-size: 0.75rem !important;
+  }
+
+  /* DeFi overview */
+  .defi-protocol-row {
+    flex-direction: column;
+    align-items: flex-start !important;
+  }
+
+  /* MEV dashboard */
+  .mev-stat-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .mev-stat-value {
+    font-size: 0.95rem !important;
+  }
+
+  /* Priority fees */
+  .fee-level-name {
+    font-size: 0.7rem !important;
+  }
+
+  .fee-value {
+    font-size: 0.85rem !important;
+  }
+
+  /* NFT tracker */
+  .nft-collection-metrics {
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+  }
+
+  /* Liquid staking */
+  .lst-summary-row {
+    flex-wrap: wrap !important;
+    gap: 6px;
+  }
+
+  /* Governance */
+  .gov-proposal-title {
+    font-size: 0.8rem !important;
+    line-height: 1.4;
+  }
+
+  /* Globe mode bar */
+  .globe-mode-bar {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    max-width: 60vw;
+  }
+
+  .globe-mode-label {
+    display: none !important;
+  }
+
+  .globe-mode-key {
+    display: none !important;
+  }
+
+  /* Market panel */
+  .market-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ETF flows */
+  .etf-table {
+    font-size: 10px !important;
+    overflow-x: auto;
+  }
+
+  /* Stablecoin panel */
+  .stablecoin-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Macro signals */
+  .macro-signal-row {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 2px;
+  }
+
+  /* Insights panel  */
+  .insight-card {
+    padding: 8px !important;
+  }
+
+  /* News panel enhancements */
+  .news-item {
+    padding: 8px !important;
+  }
+
+  .news-cluster-toggle {
+    min-height: 36px;
+    padding: 6px 10px !important;
+  }
+}
+
+/* ============================================================
+   10. SAFE AREA INSETS (notch phones)
+   ============================================================ */
+
+@supports (padding: env(safe-area-inset-top)) {
+  .header {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  .panels-grid {
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ============================================================
+   11. PRINT SAFETY — hide mobile-only stuff in print
+   ============================================================ */
+
+@media print {
+  .mobile-warning-overlay {
+    display: none !important;
+  }
+}
