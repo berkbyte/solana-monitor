@@ -153,33 +153,156 @@ function parseProposalAccount(
       ? new TextDecoder().decode(buf.slice(70, 70 + clampedLen))
       : 'Untitled Proposal';
 
-    // After name: description URL length + string, then vote fields
+    // After name: description URL length + string
     const descOffset = 70 + clampedLen;
     let description = '';
+    let afterDescOffset = descOffset;
     if (descOffset + 4 < buf.length) {
       const descLen = buf[descOffset]! | (buf[descOffset + 1]! << 8) | (buf[descOffset + 2]! << 16) | (buf[descOffset + 3]! << 24);
       const clampedDescLen = Math.min(descLen, 200, buf.length - descOffset - 4);
       if (clampedDescLen > 0 && clampedDescLen < 500) {
         description = new TextDecoder().decode(buf.slice(descOffset + 4, descOffset + 4 + clampedDescLen));
       }
+      afterDescOffset = descOffset + 4 + clampedDescLen;
     }
 
     // Map status
     const status = mapState(state);
 
-    // Approximate vote counts from remaining bytes (may not be precise)
-    // For display purposes, show the proposal with its status
+    // Try reading vote data following the description.
+    // ProposalV2 stores vote counts as u64 LE after option structs.
+    // Layout after description: draft_at(i64), signing_off_at(Option<i64>), voting_at(Option<i64>),
+    // voting_at_slot(Option<u64>), max_vote_weight(Option<u64>),
+    // max_voting_time(Option<u32>), vote_type(enum), options(vec), deny_vote_weight(Option<u64>), veto_vote_weight(Option<u64>)
+    //
+    // We try to extract what we can from the remaining bytes:
+    let votesFor = 0;
+    let votesAgainst = 0;
+    let endDate = 0;
+
+    // Helper to read i64 LE from buffer
+    const readI64 = (offset: number): number => {
+      if (offset + 8 > buf.length) return 0;
+      const view = new DataView(buf.buffer, buf.byteOffset + offset, 8);
+      return Number(view.getBigInt64(0, true));
+    };
+
+    // Helper to read Option<i64> (1 byte flag + 8 bytes value)
+    const readOptionI64 = (offset: number): { value: number; size: number } => {
+      if (offset >= buf.length) return { value: 0, size: 1 };
+      const hasValue = buf[offset]!;
+      if (hasValue === 1 && offset + 9 <= buf.length) {
+        return { value: readI64(offset + 1), size: 9 };
+      }
+      return { value: 0, size: 1 };
+    };
+
+    // Try to parse timestamps and derive end date
+    try {
+      let cursor = afterDescOffset;
+
+      // draft_at: i64 (unix timestamp in seconds)
+      cursor += 8;
+
+      // signing_off_at: Option<i64>
+      const signingOff = readOptionI64(cursor);
+      cursor += signingOff.size;
+
+      // voting_at: Option<i64>
+      const votingAt = readOptionI64(cursor);
+      cursor += votingAt.size;
+
+      // voting_at_slot: Option<u64>
+      const votingAtSlot = readOptionI64(cursor);
+      cursor += votingAtSlot.size;
+
+      // max_vote_weight: Option<u64>
+      const maxVoteWeight = readOptionI64(cursor);
+      cursor += maxVoteWeight.size;
+
+      // max_voting_time: Option<u32> (in seconds)
+      if (cursor < buf.length) {
+        const hasMaxVotingTime = buf[cursor]!;
+        if (hasMaxVotingTime === 1 && cursor + 5 <= buf.length) {
+          const maxVotingTimeSec = buf[cursor + 1]! | (buf[cursor + 2]! << 8) | (buf[cursor + 3]! << 16) | (buf[cursor + 4]! << 24);
+          cursor += 5;
+
+          // Compute end date from votingAt + maxVotingTime
+          if (votingAt.value > 0 && maxVotingTimeSec > 0) {
+            endDate = (votingAt.value + maxVotingTimeSec) * 1000;
+          }
+        } else {
+          cursor += 1;
+        }
+      }
+
+      // Skip vote_type enum (1-2 bytes) and try to find options vector
+      // The options vector contains vote weights for each choice
+      // Structure: vec length (u32), then for each option: label(str), vote_weight(u64), ...
+      // This is complex but we try to find deny_vote_weight after options
+      // For now, skip options parsing and read deny_vote_weight at the end of buffer
+
+      // Try reading the last ~32 bytes for deny_vote_weight (votesAgainst)
+      // ProposalV2 ends with: deny_vote_weight: Option<u64>, veto_vote_weight: Option<u64>, ...
+      // Scan backwards for Option<u64> patterns
+      if (buf.length > cursor + 20) {
+        // Try to find options vec: first read vec length
+        cursor += 1; // vote_type (single byte for SingleChoice)
+        if (cursor + 4 < buf.length) {
+          const optionsCount = buf[cursor]! | (buf[cursor + 1]! << 8) | (buf[cursor + 2]! << 16) | (buf[cursor + 3]! << 24);
+          cursor += 4;
+
+          if (optionsCount > 0 && optionsCount <= 10) {
+            // Each option: label string (u32 len + bytes) + vote_weight (u64) + (possibly more)
+            for (let oi = 0; oi < optionsCount && cursor + 12 < buf.length; oi++) {
+              const labelLen = buf[cursor]! | (buf[cursor + 1]! << 8) | (buf[cursor + 2]! << 16) | (buf[cursor + 3]! << 24);
+              cursor += 4;
+              const clampLabel = Math.min(labelLen, 64, buf.length - cursor);
+              cursor += clampLabel;
+
+              // vote_weight: u64 LE
+              if (cursor + 8 <= buf.length) {
+                const voteWeight = readI64(cursor);
+                if (oi === 0) votesFor = Math.max(0, Math.round(voteWeight / 1e6)); // Convert to readable units
+                cursor += 8;
+              }
+
+              // transactions_count: u16 + executing_at: Option<i64>
+              if (cursor + 2 <= buf.length) cursor += 2; // transactions_count u16
+              const execAt = readOptionI64(cursor);
+              cursor += execAt.size;
+            }
+
+            // deny_vote_weight: Option<u64>
+            const denyWeight = readOptionI64(cursor);
+            if (denyWeight.value > 0) {
+              votesAgainst = Math.round(denyWeight.value / 1e6);
+            }
+          }
+        }
+      }
+    } catch {
+      // Vote parsing failed — leave as 0
+    }
+
+    // Fall back for end date if we couldn't parse it
+    if (endDate <= 0) {
+      endDate = status === 'voting' ? Date.now() + 86400000 * 3 : Date.now() - 86400000;
+    }
+
+    const totalVoters = (votesFor > 0 || votesAgainst > 0) ? votesFor + votesAgainst : 0;
+
     return {
       id: pubkey,
       title: name.replace(/\0/g, '').trim() || 'Untitled Proposal',
       dao: daoName,
       daoSlug,
       status,
-      votesFor: 0, // Precise vote parsing requires complex borsh decoding
-      votesAgainst: 0,
-      totalVoters: 0,
-      quorumReached: status === 'passed',
-      endDate: Date.now() + (status === 'voting' ? 86400000 * 3 : -86400000),
+      votesFor,
+      votesAgainst,
+      totalVoters,
+      quorumReached: status === 'passed' || (totalVoters > 0 && votesFor > votesAgainst),
+      endDate,
       description: description.replace(/\0/g, '').trim().slice(0, 300),
       proposer: pubkey.slice(0, 12),
       platform: 'spl-governance',
@@ -205,12 +328,11 @@ async function fetchDaoCount(): Promise<number> {
     if (res.ok) {
       const data = await res.json();
       if (data.result) return data.result.length;
-      // If RPC returns error (e.g., too large), use known count
-      if (data.error) return KNOWN_REALMS.length * 150; // ~900 DAOs estimated
+      // If RPC returns error (e.g., too large), return 0 — don't fake a count
+      if (data.error) return 0;
     }
   } catch { /* fallback below */ }
-  // Reasonable estimate based on Solana ecosystem size
-  return KNOWN_REALMS.length * 150;
+  return 0; // Unknown — better than a fabricated estimate
 }
 
 export async function fetchGovernanceData(): Promise<GovernanceData> {

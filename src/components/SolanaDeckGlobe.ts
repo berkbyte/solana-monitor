@@ -18,6 +18,7 @@ import type { GlobeMode } from './GlobeModeSwitcher';
 import type { SolanaValidator, ValidatorCluster, DePINNode, MapLayers } from '@/types';
 import { fetchValidatorGeoData, computeNakamoto, getDatacenterConcentration } from '@/services/validator-geo';
 import { fetchDePINNodes, getDePINStats } from '@/services/depin-geo';
+import { fetchWhaleTransactions, type WhaleTransaction } from '@/services/whale-watch';
 
 // ── Color palette ──────────────────────────────────────────────────────────
 const COLORS = {
@@ -139,10 +140,76 @@ async function fetchDefiLocations(): Promise<DeFiBubble[]> {
   return locations;
 }
 
-// ── Flow arc generator — uses static exchange routes (no fake random data) ──
-function generateFlowArcs(): FlowArc[] {
-  // Known major exchange/DeFi hubs with their geographic locations
-  // These represent the routes between major SOL trading venues
+// ── Flow arc generator — builds arcs from real whale transaction data ────────
+// Maps known wallet labels to geographic coordinates of exchanges/protocols
+const ENTITY_LOCATIONS: Record<string, { lat: number; lon: number }> = {
+  'Binance Hot': { lat: 1.3521, lon: 103.8198 },
+  'Binance': { lat: 1.3521, lon: 103.8198 },
+  'Coinbase': { lat: 37.7749, lon: -122.4194 },
+  'Coinbase Prime': { lat: 37.7749, lon: -122.4194 },
+  'Kraken': { lat: 37.7749, lon: -122.3000 },
+  'FTX Estate': { lat: 25.0343, lon: -77.3963 },
+  'Jupiter': { lat: 1.3521, lon: 103.8198 },
+  'Raydium': { lat: 22.3193, lon: 114.1694 },
+  'Raydium CLMM': { lat: 22.3193, lon: 114.1694 },
+  'Orca': { lat: 47.6062, lon: -122.3321 },
+  'Meteora': { lat: 3.1390, lon: 101.6869 },
+  'OpenBook': { lat: 37.7749, lon: -122.4194 },
+  'Marinade Finance': { lat: 48.2082, lon: 16.3738 },
+  'Marinade mSOL': { lat: 48.2082, lon: 16.3738 },
+  'Jito SOL': { lat: 40.7128, lon: -74.0060 },
+  'Kamino Finance': { lat: 51.5074, lon: -0.1278 },
+  'MarginFi': { lat: 37.7749, lon: -122.4194 },
+  'Drift Protocol': { lat: -33.8688, lon: 151.2093 },
+  'Wintermute': { lat: 51.5074, lon: -0.1278 },
+  'Jump Trading': { lat: 41.8781, lon: -87.6298 },
+  'Alameda': { lat: 22.3193, lon: 114.1694 },
+  'BlazeStake bSOL': { lat: 40.7128, lon: -74.0060 },
+};
+
+function generateFlowArcsFromWhales(whales: WhaleTransaction[]): FlowArc[] {
+  if (whales.length === 0) return generateFallbackFlowArcs();
+
+  const arcs: FlowArc[] = [];
+  const seen = new Set<string>();
+
+  for (const tx of whales) {
+    const sourceLoc = ENTITY_LOCATIONS[tx.walletLabel] || ENTITY_LOCATIONS[tx.counterpartyLabel];
+    const targetLoc = ENTITY_LOCATIONS[tx.counterpartyLabel] || ENTITY_LOCATIONS[tx.walletLabel];
+
+    if (!sourceLoc || !targetLoc) continue;
+    // Skip same-location arcs
+    if (sourceLoc.lat === targetLoc.lat && sourceLoc.lon === targetLoc.lon) continue;
+
+    const key = `${tx.walletLabel}-${tx.counterpartyLabel}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const color = tx.severity === 'critical' ? COLORS.red
+      : tx.severity === 'high' ? COLORS.gold
+      : tx.severity === 'medium' ? COLORS.orange
+      : COLORS.solanaGreen;
+
+    arcs.push({
+      id: `whale-${arcs.length}`,
+      sourceLat: tx.direction === 'out' ? sourceLoc.lat : targetLoc.lat,
+      sourceLon: tx.direction === 'out' ? sourceLoc.lon : targetLoc.lon,
+      targetLat: tx.direction === 'out' ? targetLoc.lat : sourceLoc.lat,
+      targetLon: tx.direction === 'out' ? targetLoc.lon : sourceLoc.lon,
+      amount: tx.amountUsd,
+      color,
+      label: `${tx.walletLabel} → ${tx.counterpartyLabel} ($${(tx.amountUsd / 1000).toFixed(0)}K)`,
+    });
+
+    if (arcs.length >= 15) break;
+  }
+
+  // If we found some real arcs, return them; otherwise use fallback routes
+  return arcs.length > 0 ? arcs : generateFallbackFlowArcs();
+}
+
+// Fallback: static routes shown when no whale data available yet
+function generateFallbackFlowArcs(): FlowArc[] {
   const routes: Array<{
     from: { name: string; lat: number; lon: number };
     to: { name: string; lat: number; lon: number };
@@ -150,14 +217,9 @@ function generateFlowArcs(): FlowArc[] {
   }> = [
     { from: { name: 'Binance', lat: 1.3521, lon: 103.8198 }, to: { name: 'Coinbase', lat: 37.7749, lon: -122.4194 }, color: COLORS.gold },
     { from: { name: 'Jupiter', lat: 1.3521, lon: 103.8198 }, to: { name: 'Raydium', lat: 22.3193, lon: 114.1694 }, color: COLORS.solanaGreen },
-    { from: { name: 'Coinbase', lat: 37.7749, lon: -122.4194 }, to: { name: 'Kraken', lat: 37.7749, lon: -122.4194 }, color: COLORS.cyan },
     { from: { name: 'Jito Stake', lat: 40.7128, lon: -74.0060 }, to: { name: 'DeFi EU', lat: 51.5074, lon: -0.1278 }, color: COLORS.orange },
     { from: { name: 'DeFi Asia', lat: 35.6762, lon: 139.6503 }, to: { name: 'DeFi EU', lat: 50.1109, lon: 8.6821 }, color: COLORS.pink },
-    { from: { name: 'Binance', lat: 1.3521, lon: 103.8198 }, to: { name: 'DeFi US', lat: 40.7128, lon: -74.0060 }, color: COLORS.gold },
-    { from: { name: 'Jupiter', lat: 1.3521, lon: 103.8198 }, to: { name: 'Drift', lat: -33.8688, lon: 151.2093 }, color: COLORS.solanaGreen },
     { from: { name: 'Marinade', lat: 48.2082, lon: 16.3738 }, to: { name: 'Jito Stake', lat: 40.7128, lon: -74.0060 }, color: COLORS.solanaPurple },
-    { from: { name: 'DeFi US', lat: 37.7749, lon: -122.4194 }, to: { name: 'DeFi Asia', lat: 35.6762, lon: 139.6503 }, color: COLORS.white },
-    { from: { name: 'Coinbase', lat: 37.7749, lon: -122.4194 }, to: { name: 'Binance', lat: 1.3521, lon: 103.8198 }, color: COLORS.cyan },
   ];
 
   return routes.map((route, i) => ({
@@ -166,7 +228,7 @@ function generateFlowArcs(): FlowArc[] {
     sourceLon: route.from.lon,
     targetLat: route.to.lat,
     targetLon: route.to.lon,
-    amount: 0, // actual amounts unknown — will be populated if whale data available
+    amount: 0,
     color: route.color,
     label: `${route.from.name} → ${route.to.name}`,
   }));
@@ -293,16 +355,17 @@ export class SolanaDeckGlobe {
   // ── Load data for all modes ───────────────────────────────────────────────
   private async loadData(): Promise<void> {
     try {
-      const [validatorData, depinNodes, defiLocations] = await Promise.all([
+      const [validatorData, depinNodes, defiLocations, whaleData] = await Promise.all([
         fetchValidatorGeoData(),
         fetchDePINNodes(),
         fetchDefiLocations(),
+        fetchWhaleTransactions().catch(() => [] as WhaleTransaction[]),
       ]);
 
       this.data.validators = validatorData.validators;
       this.data.clusters = validatorData.clusters;
       this.data.depinNodes = depinNodes;
-      this.data.flowArcs = generateFlowArcs();
+      this.data.flowArcs = generateFlowArcsFromWhales(whaleData);
       this.data.defiBubbles = defiLocations;
 
       console.log(`[DeckGlobe] Data loaded: ${this.data.validators.length} validators, ${this.data.depinNodes.length} DePIN nodes`);
@@ -488,7 +551,7 @@ export class SolanaDeckGlobe {
         getTargetPosition: (d: FlowArc) => [d.targetLon, d.targetLat],
         getSourceColor: (d: FlowArc) => [...d.color, 200] as [number, number, number, number],
         getTargetColor: (d: FlowArc) => [...d.color, 80] as [number, number, number, number],
-        getWidth: (d: FlowArc) => Math.max(1, Math.log10(d.amount) - 2),
+        getWidth: (d: FlowArc) => d.amount > 0 ? Math.max(1, Math.log10(d.amount) - 2) : 2,
         getHeight: 0.4,
         greatCircle: true,
         widthMinPixels: 1,
@@ -917,9 +980,15 @@ export class SolanaDeckGlobe {
     this.currentMode = mode;
     console.log(`[DeckGlobe] Mode switched to: ${mode}`);
 
-    // Regenerate flow arcs when entering flow mode
+    // Regenerate flow arcs when entering flow mode (fetch fresh whale data)
     if (mode === 'flow') {
-      this.data.flowArcs = generateFlowArcs();
+      fetchWhaleTransactions().then(whales => {
+        this.data.flowArcs = generateFlowArcsFromWhales(whales);
+        this.updateLayers();
+      }).catch(() => {
+        this.data.flowArcs = generateFallbackFlowArcs();
+        this.updateLayers();
+      });
     }
 
     this.updateLayers();

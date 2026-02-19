@@ -90,6 +90,38 @@ async function fetchSolanaTweets(): Promise<{ tweets: NormalizedTweet[]; status:
   }
 }
 
+// Simple keyword-based sentiment analysis (1=very negative, 5=very positive)
+function analyzeSentiment(text: string): number {
+  const lower = text.toLowerCase();
+  const bullishWords = [
+    'bullish', 'moon', 'pump', 'ath', 'breakout', 'rally', 'surge', 'soaring',
+    'amazing', 'incredible', 'love', 'great', 'best', 'huge', 'massive gains',
+    'buy', 'accumulate', 'undervalued', 'gem', '🚀', '🔥', '💎', '📈',
+    'adoption', 'partnership', 'launch', 'upgrade', 'growth', 'profitable',
+  ];
+  const bearishWords = [
+    'bearish', 'dump', 'crash', 'scam', 'rug', 'sell', 'dead', 'rekt',
+    'hack', 'exploit', 'vulnerability', 'down', 'fear', 'panic', 'warning',
+    'overvalued', 'bubble', 'ponzi', 'fraud', 'broken', '📉', '💀', '🐻',
+    'loss', 'losing', 'fail', 'failed', 'bankrupt', 'insolvent', 'fud',
+  ];
+
+  let score = 0;
+  for (const word of bullishWords) {
+    if (lower.includes(word)) score++;
+  }
+  for (const word of bearishWords) {
+    if (lower.includes(word)) score--;
+  }
+
+  // Map score to 1-5 scale
+  if (score >= 3) return 5;
+  if (score >= 1) return 4;
+  if (score <= -3) return 1;
+  if (score <= -1) return 2;
+  return 3; // neutral
+}
+
 function tweetsToSocialPosts(tweets: NormalizedTweet[]): SocialPost[] {
   return tweets.slice(0, 15).map((t): SocialPost => {
     const interactions = (t.likes || 0) + (t.retweets || 0) + (t.replies || 0);
@@ -104,7 +136,7 @@ function tweetsToSocialPosts(tweets: NormalizedTweet[]): SocialPost[] {
       creatorFollowers: t.followers || 0,
       creatorProfileImage: t.avatar || '',
       interactions,
-      sentimentDetail: 3, // neutral default — no sentiment analysis
+      sentimentDetail: analyzeSentiment(t.text || ''),
       postCreated: ts,
       postUrl: t.url || '',
       network: 'twitter',
@@ -118,6 +150,7 @@ function computeSummaryFromTweets(tweets: NormalizedTweet[]): SocialTopicSummary
   let totalLikes = 0;
   let totalRetweets = 0;
   let totalReplies = 0;
+  let sentimentSum = 0;
   const uniqueAuthors = new Set<string>();
 
   for (const t of tweets) {
@@ -125,16 +158,18 @@ function computeSummaryFromTweets(tweets: NormalizedTweet[]): SocialTopicSummary
     totalRetweets += t.retweets || 0;
     totalReplies += t.replies || 0;
     if (t.handle) uniqueAuthors.add(t.handle);
+    sentimentSum += analyzeSentiment(t.text || '');
   }
 
   const totalInteractions = totalLikes + totalRetweets + totalReplies;
+  const avgSentiment = tweets.length > 0 ? Math.round((sentimentSum / tweets.length) * 10) / 10 : 3;
 
   return {
     title: 'Solana',
     socialVolume24h: tweets.length,
-    socialVolumePrev24h: 0,
-    socialDominance: 0,
-    sentiment: 3,
+    socialVolumePrev24h: 0, // No previous period data available from single API call
+    socialDominance: 0, // Would need cross-topic comparison data
+    sentiment: avgSentiment,
     interactions24h: totalInteractions,
     contributors24h: uniqueAuthors.size,
     postsCount24h: tweets.length,

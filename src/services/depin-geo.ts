@@ -102,6 +102,45 @@ interface NetworkStats {
   hivemapper: number;
 }
 
+// Try to fetch real Helium hotspot locations (limited sample for globe)
+async function fetchHeliumHotspots(limit: number): Promise<DePINNode[]> {
+  const nodes: DePINNode[] = [];
+  try {
+    // Helium IoT hotspot locations from the Helium API
+    const res = await fetch(
+      `https://entities.nft.helium.io/v2/hotspots?limit=${limit}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const hotspots = data?.items || data?.data || (Array.isArray(data) ? data : []);
+
+    for (let i = 0; i < hotspots.length && i < limit; i++) {
+      const h = hotspots[i];
+      const lat = Number(h.lat || h.latitude || h.geocode?.lat);
+      const lon = Number(h.lng || h.lon || h.longitude || h.geocode?.lng);
+      if (!lat || !lon || isNaN(lat) || isNaN(lon)) continue;
+
+      nodes.push({
+        id: `helium-${h.address || h.entity_key || i}`,
+        network: 'helium',
+        lat,
+        lon,
+        status: h.active !== false ? 'active' : 'offline',
+        rewardToken: 'HNT',
+        dailyRewards: Number(h.rewards_24h || 0) || 0.15,
+        uptimePercent: h.active !== false ? 95 + (i % 5) : 0,
+      });
+    }
+    if (nodes.length > 0) {
+      console.log(`[depin-geo] Fetched ${nodes.length} real Helium hotspot locations`);
+    }
+  } catch (e) {
+    console.warn('[depin-geo] Helium hotspot fetch failed:', e);
+  }
+  return nodes;
+}
+
 async function fetchRealNetworkStats(): Promise<NetworkStats> {
   const stats: NetworkStats = { helium: 0, render: 0, ionet: 0, hivemapper: 0 };
 
@@ -203,8 +242,11 @@ export async function fetchDePINNodes(): Promise<DePINNode[]> {
     return cachedNodes;
   }
 
-  // Fetch real network stats
-  const stats = await fetchRealNetworkStats();
+  // Fetch real network stats and Helium hotspots in parallel
+  const [stats, realHeliumNodes] = await Promise.all([
+    fetchRealNetworkStats(),
+    fetchHeliumHotspots(500), // try to get real Helium locations
+  ]);
 
   // Use real counts if available, otherwise use known approximate totals (from public data)
   const heliumCount = stats.helium || 370_000; // ~370K Helium hotspots as of 2025
@@ -216,8 +258,13 @@ export async function fetchDePINNodes(): Promise<DePINNode[]> {
   const DISPLAY_CAP = 500; // max nodes per network for globe performance
   const scale = (count: number) => Math.min(count, DISPLAY_CAP);
 
+  // Use real Helium hotspot locations if we got them, otherwise fall back to city distribution
+  const heliumNodes = realHeliumNodes.length >= 50
+    ? realHeliumNodes.slice(0, DISPLAY_CAP)
+    : distributeNodes('helium', HELIUM_CITIES, scale(heliumCount), 'HNT', 0.15);
+
   const allNodes: DePINNode[] = [
-    ...distributeNodes('helium', HELIUM_CITIES, scale(heliumCount), 'HNT', 0.15),
+    ...heliumNodes,
     ...distributeNodes('render', RENDER_CITIES, scale(renderCount), 'RNDR', 2.5),
     ...distributeNodes('ionet', IONET_CITIES, scale(ionetCount), 'IO', 1.2),
     ...distributeNodes('hivemapper', HIVEMAPPER_CITIES, scale(hivemapperCount), 'HONEY', 0.8),

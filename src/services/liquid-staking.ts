@@ -79,7 +79,7 @@ async function fetchLSTPrices(): Promise<Map<string, number>> {
     const data = await res.json();
     const prices = data.data || {};
 
-    const solPrice = prices[solMint]?.price ? parseFloat(prices[solMint].price) : 150;
+    const solPrice = prices[solMint]?.price ? parseFloat(prices[solMint].price) : 0;
 
     for (const cfg of LST_CONFIG) {
       const info = prices[cfg.mint];
@@ -103,7 +103,19 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
   const [apys, prices] = await Promise.allSettled([fetchLSTApys(), fetchLSTPrices()]);
   const apyMap = apys.status === 'fulfilled' ? apys.value : new Map<string, number>();
   const priceMap = prices.status === 'fulfilled' ? prices.value : new Map<string, number>();
-  const solPrice = priceMap.get('SOL_USD') || 150;
+  // If SOL price is unknown, try fetching from CoinGecko directly
+  let solPrice = priceMap.get('SOL_USD') || 0;
+  if (solPrice === 0) {
+    try {
+      const solRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (solRes.ok) {
+        const solData = await solRes.json();
+        solPrice = solData?.solana?.usd || 0;
+      }
+    } catch { /* leave as 0 */ }
+  }
 
   // Fetch TVL data from DeFi Llama protocols — use Solana-specific TVL
   let protocolTvls = new Map<string, number>();
@@ -137,14 +149,8 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
     // Use fallback TVL data
   }
 
-  // Default TVLs (rough estimates based on known data, in USD)
-  const defaultTvls: Record<string, number> = {
-    'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': 1_200_000_000,
-    'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': 2_500_000_000,
-    'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1': 400_000_000,
-    '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm': 800_000_000,
-    'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v': 500_000_000,
-  };
+  // No hardcoded TVL fallbacks — show 0 (unavailable) if DeFi Llama is down
+  const defaultTvls: Record<string, number> = {};
 
   // Default APYs — only used when DeFi Llama yields API fails
   // These are approximate and clearly labeled as fallback
@@ -156,8 +162,8 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
     'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v': 0,
   };
 
-  // Fetch real total staked SOL from RPC
-  let totalSolStaked = 380_000_000; // fallback
+  // Fetch real total staked SOL from RPC (no hardcoded fallback)
+  let totalSolStaked = 0;
   try {
     const stakeRes = await fetch('https://api.mainnet-beta.solana.com', {
       method: 'POST',
@@ -195,9 +201,9 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
   }
 
   const providers: LSTProvider[] = LST_CONFIG.map(cfg => {
-    const tvlUsd = protocolTvls.get(cfg.mint) || defaultTvls[cfg.mint] || 500_000_000;
-    const tvlSol = tvlUsd / solPrice;
-    const apy = apyMap.get(cfg.mint) || defaultApys[cfg.mint] || 7.0;
+    const tvlUsd = protocolTvls.get(cfg.mint) || defaultTvls[cfg.mint] || 0;
+    const tvlSol = solPrice > 0 ? tvlUsd / solPrice : 0;
+    const apy = apyMap.get(cfg.mint) || defaultApys[cfg.mint] || 0; // 0 = unavailable, not a fake value
     const priceSol = priceMap.get(cfg.mint) || 1.0;
     const pegDeviation = (priceSol - 1.0) * 100;
     const marketShare = (tvlSol / totalSolStaked) * 100;
@@ -224,7 +230,7 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
       pegDeviation,
       validators: cfg.validators,
       marketShare,
-      fdv: cgData.get(cfg.coingeckoId)?.fdv || tvlUsd, // real FDV from CoinGecko
+      fdv: cgData.get(cfg.coingeckoId)?.fdv || 0, // real FDV from CoinGecko, 0 if unavailable
       change24h: cgData.get(cfg.coingeckoId)?.change24h || 0, // real 24h change from CoinGecko
     };
   });
@@ -238,7 +244,7 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
   const summary: LSTSummary = {
     totalStakedSol,
     totalStakedUsd,
-    lstShareOfTotal: (totalStakedSol / totalSolStaked) * 100,
+    lstShareOfTotal: totalSolStaked > 0 ? (totalStakedSol / totalSolStaked) * 100 : 0,
     providers: providers.sort((a, b) => b.tvlUsd - a.tvlUsd),
     avgApy,
   };

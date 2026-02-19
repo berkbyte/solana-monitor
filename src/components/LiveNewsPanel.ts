@@ -55,8 +55,8 @@ const FULL_LIVE_CHANNELS: LiveChannel[] = [
   { id: 'bloomberg', name: 'Bloomberg', handle: '@Bloomberg', fallbackVideoId: 'iEpJwprxDdk' },
   { id: 'cnbc', name: 'CNBC', handle: '@CNBC', fallbackVideoId: '9NyxcX3rhQs' },
   { id: 'yahoo', name: 'Yahoo Finance', handle: '@YahooFinance', fallbackVideoId: 'KQp-e_XQnDE' },
-  { id: 'cointelegraph', name: 'CoinTelegraph', handle: '@caborointelegraph', fallbackVideoId: 'undefined', useFallbackOnly: true },
-  { id: 'coindesk', name: 'CoinDesk', handle: '@CoinDesk', fallbackVideoId: 'undefined', useFallbackOnly: true },
+  { id: 'cointelegraph', name: 'CoinTelegraph', handle: '@caborointelegraph', useFallbackOnly: true },
+  { id: 'coindesk', name: 'CoinDesk', handle: '@CoinDesk', useFallbackOnly: true },
 ];
 
 // Tech variant: Tech & business channels

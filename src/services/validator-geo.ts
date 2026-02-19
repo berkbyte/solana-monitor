@@ -193,10 +193,10 @@ async function fetchFromRPC(): Promise<SolanaValidator[]> {
         commission: Number(v.commission ?? 10),
         lastVote: Number(v.lastVote || 0) * 400 + Date.now() - 300000, // approximate
         delinquent: Boolean(v.delinquent),
-        version: '2.0.15',
-        clientType: 'solana-labs',
-        skipRate: 0,
-        apy: 7.0,
+        version: 'unknown', // Real version requires getClusterNodes RPC call
+        clientType: 'unknown',
+        skipRate: 0, // Not available from getVoteAccounts RPC
+        apy: 0, // Not available from getVoteAccounts RPC — 0 = unknown
       });
     }
 
@@ -282,7 +282,7 @@ async function fetchFromValidatorsApp(): Promise<SolanaValidator[]> {
         version: (v.software_version || v.version || '2.0.15') as string,
         clientType: detectClientType((v.software_version || v.version || '') as string),
         skipRate: Number(v.skip_rate ?? v.skipped_slot_percent ?? 0),
-        apy: Number(v.apy_estimate ?? v.apy ?? 7),
+        apy: Number(v.apy_estimate ?? v.apy ?? 0),
       };
     });
   } catch (err) {

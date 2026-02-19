@@ -71,17 +71,65 @@ function classifyBundleType(tipLamports: number, txCount: number): MevBundle['ty
   return 'unknown';
 }
 
-// Fetch real bundle data from Jito tip_floor (history endpoint is deprecated)
-// tip_floor provides recent tip statistics which we can use to estimate bundle activity
+// Fetch real bundle data from Jito Block Engine REST API
+// Uses the /api/v1/bundles/recent endpoint for live bundle data
 async function fetchRealBundles(): Promise<MevBundle[]> {
-  // The /history endpoint is no longer available (404).
-  // Instead we generate recent bundle estimates from tip_floor data.
-  // This is more honest than showing a completely empty panel.
+  const endpoints = [
+    'https://bundles.jito.wtf/api/v1/bundles/recent?limit=20',
+    'https://mainnet.block-engine.jito.wtf/api/v1/bundles/recent?limit=20',
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) continue;
+
+      return data.map((b: Record<string, unknown>, i: number) => {
+        const tip = Number(b.tip_lamports || b.landed_tip_lamports || b.tip || 0);
+        const txCount = Number(b.num_transactions || b.tx_count || b.landed_tx_count || 2);
+        return {
+          bundleId: String(b.bundle_id || b.uuid || `bundle-${i}`),
+          tipLamports: tip,
+          txCount,
+          slot: Number(b.slot || 0),
+          timestamp: Number(b.timestamp || b.landed_at || 0) > 1e12
+            ? Number(b.timestamp || b.landed_at)
+            : Number(b.timestamp || b.landed_at || 0) * 1000 || Date.now() - i * 12000,
+          landedTxCount: Number(b.landed_tx_count || txCount),
+          type: classifyBundleType(tip, txCount),
+        };
+      });
+    } catch {
+      // try next endpoint
+    }
+  }
+
   return [];
 }
 
-// Fetch Jito validator stake percentage from on-chain data
+// Fetch Jito validator stake percentage from Jito's own API first, fallback to heuristic
 async function fetchJitoStakePercent(): Promise<number> {
+  // Try Jito's public stake stats endpoint first
+  try {
+    const res = await fetch('https://kobe.mainnet.jito.network/api/v1/validators', {
+      signal: AbortSignal.timeout(6000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.stake_percentage) return Math.round(data.stake_percentage);
+      if (Array.isArray(data?.validators)) {
+        // If array of validators, count their total stake vs network
+        const jitoStake = data.validators.reduce((s: number, v: Record<string, unknown>) => s + Number(v.active_stake || 0), 0);
+        if (jitoStake > 0 && data.total_network_stake) {
+          return Math.round((jitoStake / Number(data.total_network_stake)) * 100);
+        }
+      }
+    }
+  } catch { /* fallback below */ }
+
+  // Fallback: use on-chain RPC heuristic (less accurate)
   try {
     const res = await fetch('https://api.mainnet-beta.solana.com', {
       method: 'POST',
@@ -95,12 +143,11 @@ async function fetchJitoStakePercent(): Promise<number> {
     if (current.length === 0) return 0;
     const totalStake = current.reduce((s, v) => s + v.activatedStake, 0);
     if (totalStake === 0) return 0;
-    // Jito validators typically have commission 0-5% and use MEV.
-    // Commission-0 validators are a strong proxy for Jito client users.
+    // Jito validators typically have commission 0-8%.
+    // This is still a heuristic — not all low-commission validators run Jito.
     const lowCommissionStake = current
-      .filter(v => v.commission <= 5)
+      .filter(v => v.commission <= 8)
       .reduce((s, v) => s + v.activatedStake, 0);
-    // Low-commission validators ≈ Jito stake (not perfect, but better than hardcoding)
     return Math.round((lowCommissionStake / totalStake) * 100);
   } catch {
     return 0;
@@ -118,36 +165,28 @@ export async function fetchMevStats(): Promise<MevStats> {
     fetchJitoStakePercent(),
   ]);
 
-  const bundles = realBundles.length > 0 ? realBundles : [];
+  const bundles = [...realBundles];
   const avgTipPerBundle = tipFloor?.p50 || 0;
 
-  // Estimate 24h bundle counts from Jito's public stats
-  // Solana averages ~1200-1500 MEV bundles/hour based on historical data
-  const bundlesPerHour = tipFloor ? 1350 : 0;
-  const totalBundles24h = bundlesPerHour * 24;
+  // Compute 24h bundle count:
+  // If we have real bundles, extrapolate from the time span they cover
+  let totalBundles24h = 0;
+  if (bundles.length >= 2) {
+    const timestamps = bundles.map(b => b.timestamp).filter(t => t > 0).sort((a, b) => a - b);
+    if (timestamps.length >= 2) {
+      const spanMs = timestamps[timestamps.length - 1]! - timestamps[0]!;
+      const spanHours = spanMs / 3_600_000;
+      if (spanHours > 0) {
+        const bundlesPerHour = bundles.length / spanHours;
+        totalBundles24h = Math.round(bundlesPerHour * 24);
+      }
+    }
+  }
+  // If no real bundles available but tip floor is active, Jito is processing bundles
+  // Show tip floor data but mark bundles count as unavailable (0)
   const totalTipsLamports = totalBundles24h > 0 && avgTipPerBundle > 0
     ? avgTipPerBundle * totalBundles24h
     : 0;
-
-  // Generate representative recent bundles from tip floor distribution
-  // so the panel has something to display
-  if (bundles.length === 0 && tipFloor) {
-    const now = Date.now();
-    const tipValues = [tipFloor.p25, tipFloor.p50, tipFloor.p75, tipFloor.p99, tipFloor.p50];
-    for (let i = 0; i < 10; i++) {
-      const tip = tipValues[i % tipValues.length]!;
-      const txCount = i % 3 === 0 ? 3 : i % 3 === 1 ? 2 : 4;
-      bundles.push({
-        bundleId: `tip-est-${i}`,
-        tipLamports: tip,
-        txCount,
-        slot: 0,
-        timestamp: now - i * 12000, // ~12s apart
-        landedTxCount: txCount,
-        type: classifyBundleType(tip, txCount),
-      });
-    }
-  }
 
   // Find most frequent bundle type as top "searcher"
   const typeCounts = new Map<string, number>();
