@@ -167,8 +167,23 @@ async function fetchFromHelius(apiKey: string): Promise<WhaleTransaction[]> {
         const tokenTransfers = tx.tokenTransfers || [];
         for (const tt of tokenTransfers) {
           const amount = tt.tokenAmount || 0;
-          const usdAmount = amount * (tt.mint?.includes('EPjFWdd5') ? 1 : 0.001);
+          // Use real USD value if Helius provides it, otherwise identify stablecoins
+          const isStable = tt.mint?.startsWith('EPjFWdd5') || tt.mint?.startsWith('Es9vMF');
+          const isWrappedSol = tt.mint === 'So11111111111111111111111111111111111111112';
+          let usdAmount: number;
+          if (isStable) {
+            usdAmount = amount;
+          } else if (isWrappedSol) {
+            usdAmount = amount * solPrice;
+          } else {
+            // Skip non-stablecoin SPL tokens without price data — we can't estimate accurately
+            continue;
+          }
           if (usdAmount < WHALE_THRESHOLDS.low) continue;
+
+          const tokenSym = isStable
+            ? (tt.mint?.startsWith('EPjFWdd5') ? 'USDC' : 'USDT')
+            : isWrappedSol ? 'wSOL' : 'SPL';
 
           results.push({
             signature: tx.signature,
@@ -178,7 +193,7 @@ async function fetchFromHelius(apiKey: string): Promise<WhaleTransaction[]> {
             direction: tt.toUserAccount === address ? 'in' : 'out',
             amount,
             amountUsd: usdAmount,
-            tokenSymbol: tt.mint?.includes('EPjFWdd5') ? 'USDC' : 'SPL',
+            tokenSymbol: tokenSym,
             tokenMint: tt.mint || '',
             counterparty: tt.toUserAccount === address ? tt.fromUserAccount : tt.toUserAccount,
             counterpartyLabel: getWalletLabel(tt.toUserAccount === address ? tt.fromUserAccount : tt.toUserAccount),
@@ -341,10 +356,23 @@ async function fetchFromPublicRpc(): Promise<WhaleTransaction[]> {
           for (const [mint, { pre, post }] of tokenChanges) {
             const diff = post - pre;
             const absAmount = Math.abs(diff);
-            // USDC / USDT are ~$1, otherwise rough estimate
+            // Only track tokens we can accurately price
             const isStable = mint.startsWith('EPjFWdd5') || mint.startsWith('Es9vMF');
-            const usdAmount = isStable ? absAmount : absAmount * 0.001;
+            const isWrappedSol = mint === 'So11111111111111111111111111111111111111112';
+            let usdAmount: number;
+            if (isStable) {
+              usdAmount = absAmount;
+            } else if (isWrappedSol) {
+              usdAmount = absAmount * solPrice;
+            } else {
+              // Skip unknown SPL tokens — showing wrong USD values is worse than missing them
+              continue;
+            }
             if (usdAmount < WHALE_THRESHOLDS.low) continue;
+
+            const tokenSym = isStable
+              ? (mint.startsWith('EPjFWdd5') ? 'USDC' : 'USDT')
+              : isWrappedSol ? 'wSOL' : 'SPL';
 
             results.push({
               signature: sigInfo.signature,
@@ -354,7 +382,7 @@ async function fetchFromPublicRpc(): Promise<WhaleTransaction[]> {
               direction: diff > 0 ? 'in' : 'out',
               amount: absAmount,
               amountUsd: usdAmount,
-              tokenSymbol: isStable ? (mint.startsWith('EPjFWdd5') ? 'USDC' : 'USDT') : 'SPL',
+              tokenSymbol: tokenSym,
               tokenMint: mint,
               counterparty: '',
               counterpartyLabel: '—',

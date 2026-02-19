@@ -57,7 +57,7 @@ export class ETFFlowsPanel extends Panel {
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    super({ id: 'etf-flows', title: 'Solana ETF Tracker', showCount: false });
+    super({ id: 'etf-flows', title: 'Crypto ETF Tracker', showCount: false });
     void this.fetchData();
     this.refreshInterval = setInterval(() => this.fetchData(), 3 * 60000);
   }

@@ -69,23 +69,58 @@ export async function fetchDeFiOverview(): Promise<DeFiSummary> {
       ? solanaProtocols.reduce((sum: number, p: ProtocolData) => sum + p.tvlChange24h, 0) / solanaProtocols.length
       : 0;
 
-    // Liquid staking data
-    const liquidStaking: LiquidStakingData[] = [
-      { protocol: 'Marinade', token: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', tvl: 0, apy: 7.2, validatorCount: 450, stakeShare: 0 },
-      { protocol: 'Jito', token: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', tvl: 0, apy: 7.8, validatorCount: 200, stakeShare: 0 },
-      { protocol: 'BlazeStake', token: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', tvl: 0, apy: 7.0, validatorCount: 400, stakeShare: 0 },
-      { protocol: 'Sanctum', token: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', tvl: 0, apy: 7.5, validatorCount: 100, stakeShare: 0 },
+    // Liquid staking data — TVL from DeFi Llama, APY from DeFi Llama yields
+    const lstConfigs = [
+      { protocol: 'Marinade', token: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', llamaPool: 'marinade', validatorCount: 0 },
+      { protocol: 'Jito', token: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', llamaPool: 'jito', validatorCount: 0 },
+      { protocol: 'BlazeStake', token: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', llamaPool: 'blazestake', validatorCount: 0 },
+      { protocol: 'Sanctum', token: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', llamaPool: 'sanctum', validatorCount: 0 },
     ];
 
-    // Enrich with DeFi Llama data
-    for (const lst of liquidStaking) {
-      const protocol = solanaProtocols.find((p: ProtocolData) =>
-        p.name.toLowerCase().includes(lst.protocol.toLowerCase())
-      );
-      if (protocol) {
-        lst.tvl = protocol.tvl;
+    // Fetch real APYs from DeFi Llama yields
+    const apyMap = new Map<string, number>();
+    try {
+      const yieldsRes = await fetch('https://yields.llama.fi/pools', { signal: AbortSignal.timeout(8000) });
+      if (yieldsRes.ok) {
+        const yieldsData = await yieldsRes.json();
+        const pools = yieldsData.data || yieldsData;
+        for (const cfg of lstConfigs) {
+          const pool = pools.find((p: Record<string, unknown>) =>
+            p.chain === 'Solana' && (
+              (p.symbol as string)?.toLowerCase().includes(cfg.token.toLowerCase()) ||
+              (p.project as string)?.toLowerCase().includes(cfg.llamaPool)
+            )
+          );
+          if (pool && typeof pool.apy === 'number') {
+            apyMap.set(cfg.mint, pool.apy);
+          }
+        }
       }
-    }
+    } catch { /* use 0 */ }
+
+    // Compute total staked SOL for stake share calculation
+    const totalStakedSol = solanaProtocols
+      .filter((p: ProtocolData) => p.category === 'Liquid Staking')
+      .reduce((s: number, p: ProtocolData) => s + p.tvl, 0) || totalTvl * 0.3;
+
+    // Build liquid staking entries
+    const liquidStaking: LiquidStakingData[] = lstConfigs.map(cfg => {
+      const protocol = solanaProtocols.find((p: ProtocolData) =>
+        p.name.toLowerCase().includes(cfg.protocol.toLowerCase())
+      );
+      const tvl = protocol?.tvl || 0;
+      const apy = apyMap.get(cfg.mint) || 0;
+      const stakeShare = totalStakedSol > 0 ? (tvl / totalStakedSol) * 100 : 0;
+      return {
+        protocol: cfg.protocol,
+        token: cfg.token,
+        mint: cfg.mint,
+        tvl,
+        apy: Math.round(apy * 100) / 100,
+        validatorCount: cfg.validatorCount, // 0 = unknown
+        stakeShare: Math.round(stakeShare * 100) / 100,
+      };
+    });
 
     const summary: DeFiSummary = {
       totalTvl,

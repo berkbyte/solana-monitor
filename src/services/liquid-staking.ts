@@ -143,7 +143,22 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
     'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v': 7.9,
   };
 
-  const totalSolStaked = 380_000_000; // approximate total SOL staked
+  // Fetch real total staked SOL from RPC
+  let totalSolStaked = 380_000_000; // fallback
+  try {
+    const stakeRes = await fetch('https://api.mainnet-beta.solana.com', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getVoteAccounts' }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (stakeRes.ok) {
+      const stakeData = await stakeRes.json();
+      const all = [...(stakeData.result?.current || []), ...(stakeData.result?.delinquent || [])];
+      const totalLamports = all.reduce((s: number, v: { activatedStake: number }) => s + v.activatedStake, 0);
+      if (totalLamports > 0) totalSolStaked = Math.round(totalLamports / 1e9);
+    }
+  } catch { /* keep fallback */ }
 
   // Fetch FDV and 24h change from CoinGecko for all LSTs
   const cgIds = LST_CONFIG.map(c => c.coingeckoId).join(',');

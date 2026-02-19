@@ -116,12 +116,17 @@ async function fetchJitoStakePercent(): Promise<number> {
     });
     if (!res.ok) return 0;
     const data = await res.json();
-    const current = data.result?.current || [];
-    const totalStake = current.reduce((s: number, v: { activatedStake: number }) => s + v.activatedStake, 0);
-    // Jito validators typically run modified client. We approximate by looking at stake
-    // concentration. Jito holds ~37-40% of stake weight as of 2025.
-    // Without a perfect flag, return 0 to indicate we couldn't compute it precisely.
-    return totalStake > 0 ? 0 : 0;
+    const current: Array<{ activatedStake: number; commission: number }> = data.result?.current || [];
+    if (current.length === 0) return 0;
+    const totalStake = current.reduce((s, v) => s + v.activatedStake, 0);
+    if (totalStake === 0) return 0;
+    // Jito validators typically have commission 0-5% and use MEV.
+    // Commission-0 validators are a strong proxy for Jito client users.
+    const lowCommissionStake = current
+      .filter(v => v.commission <= 5)
+      .reduce((s, v) => s + v.activatedStake, 0);
+    // Low-commission validators ≈ Jito stake (not perfect, but better than hardcoding)
+    return Math.round((lowCommissionStake / totalStake) * 100);
   } catch {
     return 0;
   }
