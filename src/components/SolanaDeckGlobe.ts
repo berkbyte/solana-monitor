@@ -78,58 +78,98 @@ interface DeFiBubble {
   category: string;
 }
 
-// ── DeFi protocol locations (headquarters/main user base) ──────────────────
-const DEFI_LOCATIONS: DeFiBubble[] = [
-  { name: 'Jupiter', lat: 1.3521, lon: 103.8198, tvl: 2_100_000_000, change24h: 3.2, category: 'DEX' },
-  { name: 'Raydium', lat: 22.3193, lon: 114.1694, tvl: 1_800_000_000, change24h: -1.5, category: 'DEX' },
-  { name: 'Marinade', lat: 48.2082, lon: 16.3738, tvl: 1_500_000_000, change24h: 2.1, category: 'LST' },
-  { name: 'Jito', lat: 40.7128, lon: -74.0060, tvl: 1_300_000_000, change24h: 5.4, category: 'LST' },
-  { name: 'Drift', lat: -33.8688, lon: 151.2093, tvl: 850_000_000, change24h: -0.8, category: 'Perps' },
-  { name: 'Kamino', lat: 51.5074, lon: -0.1278, tvl: 780_000_000, change24h: 1.9, category: 'Lending' },
-  { name: 'MarginFi', lat: 37.7749, lon: -122.4194, tvl: 650_000_000, change24h: 4.2, category: 'Lending' },
-  { name: 'Orca', lat: 47.6062, lon: -122.3321, tvl: 520_000_000, change24h: -2.1, category: 'DEX' },
-  { name: 'Meteora', lat: 3.1390, lon: 101.6869, tvl: 480_000_000, change24h: 8.7, category: 'DEX' },
-  { name: 'Sanctum', lat: 34.0522, lon: -118.2437, tvl: 420_000_000, change24h: 3.5, category: 'LST' },
-  { name: 'Tensor', lat: 52.5200, lon: 13.4050, tvl: 180_000_000, change24h: -4.2, category: 'NFT' },
-  { name: 'Phoenix', lat: 33.4484, lon: -112.0740, tvl: 150_000_000, change24h: 1.1, category: 'DEX' },
-  { name: 'Solend', lat: 25.7617, lon: -80.1918, tvl: 130_000_000, change24h: -1.3, category: 'Lending' },
-  { name: 'Pyth', lat: 41.8781, lon: -87.6298, tvl: 0, change24h: 0, category: 'Oracle' }, // Oracle, no TVL
+// ── DeFi protocol locations — TVLs fetched from DeFi Llama at runtime ───────
+// Coordinates are static (headquarters / main user base), TVLs are updated
+const DEFI_PROTOCOL_COORDS: Array<{ name: string; slug: string; lat: number; lon: number; category: string }> = [
+  { name: 'Jupiter', slug: 'jupiter', lat: 1.3521, lon: 103.8198, category: 'DEX' },
+  { name: 'Raydium', slug: 'raydium', lat: 22.3193, lon: 114.1694, category: 'DEX' },
+  { name: 'Marinade', slug: 'marinade-finance', lat: 48.2082, lon: 16.3738, category: 'LST' },
+  { name: 'Jito', slug: 'jito', lat: 40.7128, lon: -74.0060, category: 'LST' },
+  { name: 'Drift', slug: 'drift', lat: -33.8688, lon: 151.2093, category: 'Perps' },
+  { name: 'Kamino', slug: 'kamino', lat: 51.5074, lon: -0.1278, category: 'Lending' },
+  { name: 'MarginFi', slug: 'marginfi', lat: 37.7749, lon: -122.4194, category: 'Lending' },
+  { name: 'Orca', slug: 'orca', lat: 47.6062, lon: -122.3321, category: 'DEX' },
+  { name: 'Meteora', slug: 'meteora', lat: 3.1390, lon: 101.6869, category: 'DEX' },
+  { name: 'Sanctum', slug: 'sanctum', lat: 34.0522, lon: -118.2437, category: 'LST' },
+  { name: 'Tensor', slug: 'tensor', lat: 52.5200, lon: 13.4050, category: 'NFT' },
+  { name: 'Phoenix', slug: 'phoenix', lat: 33.4484, lon: -112.0740, category: 'DEX' },
+  { name: 'Solend', slug: 'solend', lat: 25.7617, lon: -80.1918, category: 'Lending' },
+  { name: 'Pyth', slug: 'pyth-network', lat: 41.8781, lon: -87.6298, category: 'Oracle' },
 ];
 
-// ── Flow arc generator (whale movements) ───────────────────────────────────
+let defiLocationsCache: DeFiBubble[] | null = null;
+let defiCacheTs = 0;
+
+async function fetchDefiLocations(): Promise<DeFiBubble[]> {
+  const now = Date.now();
+  if (defiLocationsCache && now - defiCacheTs < 300_000) return defiLocationsCache;
+
+  const tvlMap = new Map<string, { tvl: number; change24h: number }>();
+  try {
+    const res = await fetch('https://api.llama.fi/protocols', { signal: AbortSignal.timeout(8000) });
+    if (res.ok) {
+      const protocols: Array<{ name: string; slug: string; tvl?: number; change_1d?: number; chains?: string[] }> = await res.json();
+      for (const p of protocols) {
+        if (p.chains?.includes('Solana') || p.chains?.includes('solana')) {
+          tvlMap.set(p.slug?.toLowerCase() || p.name.toLowerCase(), {
+            tvl: p.tvl || 0,
+            change24h: p.change_1d || 0,
+          });
+        }
+      }
+    }
+  } catch {
+    // Use zeros
+  }
+
+  const locations: DeFiBubble[] = DEFI_PROTOCOL_COORDS.map(coord => {
+    const data = tvlMap.get(coord.slug) || tvlMap.get(coord.name.toLowerCase());
+    return {
+      name: coord.name,
+      lat: coord.lat,
+      lon: coord.lon,
+      tvl: data?.tvl || 0,
+      change24h: data?.change24h || 0,
+      category: coord.category,
+    };
+  });
+
+  defiLocationsCache = locations;
+  defiCacheTs = now;
+  return locations;
+}
+
+// ── Flow arc generator — uses static exchange routes (no fake random data) ──
 function generateFlowArcs(): FlowArc[] {
-  // Simulate whale transfers between major hubs
-  const hubs = [
-    { name: 'Binance', lat: 1.3521, lon: 103.8198, color: COLORS.gold },
-    { name: 'Coinbase', lat: 37.7749, lon: -122.4194, color: COLORS.cyan },
-    { name: 'Kraken', lat: 37.7749, lon: -122.4194, color: COLORS.solanaPurple },
-    { name: 'FTX Estate', lat: 25.0343, lon: -77.3963, color: COLORS.red },
-    { name: 'Jupiter', lat: 1.3521, lon: 103.8198, color: COLORS.solanaGreen },
-    { name: 'Raydium', lat: 22.3193, lon: 114.1694, color: COLORS.solanaGreen },
-    { name: 'Jito Stake', lat: 40.7128, lon: -74.0060, color: COLORS.orange },
-    { name: 'DeFi User', lat: 51.5074, lon: -0.1278, color: COLORS.white },
-    { name: 'Whale A', lat: 35.6762, lon: 139.6503, color: COLORS.pink },
-    { name: 'Whale B', lat: 50.1109, lon: 8.6821, color: COLORS.pink },
+  // Known major exchange/DeFi hubs with their geographic locations
+  // These represent the routes between major SOL trading venues
+  const routes: Array<{
+    from: { name: string; lat: number; lon: number };
+    to: { name: string; lat: number; lon: number };
+    color: [number, number, number];
+  }> = [
+    { from: { name: 'Binance', lat: 1.3521, lon: 103.8198 }, to: { name: 'Coinbase', lat: 37.7749, lon: -122.4194 }, color: COLORS.gold },
+    { from: { name: 'Jupiter', lat: 1.3521, lon: 103.8198 }, to: { name: 'Raydium', lat: 22.3193, lon: 114.1694 }, color: COLORS.solanaGreen },
+    { from: { name: 'Coinbase', lat: 37.7749, lon: -122.4194 }, to: { name: 'Kraken', lat: 37.7749, lon: -122.4194 }, color: COLORS.cyan },
+    { from: { name: 'Jito Stake', lat: 40.7128, lon: -74.0060 }, to: { name: 'DeFi EU', lat: 51.5074, lon: -0.1278 }, color: COLORS.orange },
+    { from: { name: 'DeFi Asia', lat: 35.6762, lon: 139.6503 }, to: { name: 'DeFi EU', lat: 50.1109, lon: 8.6821 }, color: COLORS.pink },
+    { from: { name: 'Binance', lat: 1.3521, lon: 103.8198 }, to: { name: 'DeFi US', lat: 40.7128, lon: -74.0060 }, color: COLORS.gold },
+    { from: { name: 'Jupiter', lat: 1.3521, lon: 103.8198 }, to: { name: 'Drift', lat: -33.8688, lon: 151.2093 }, color: COLORS.solanaGreen },
+    { from: { name: 'Marinade', lat: 48.2082, lon: 16.3738 }, to: { name: 'Jito Stake', lat: 40.7128, lon: -74.0060 }, color: COLORS.solanaPurple },
+    { from: { name: 'DeFi US', lat: 37.7749, lon: -122.4194 }, to: { name: 'DeFi Asia', lat: 35.6762, lon: 139.6503 }, color: COLORS.white },
+    { from: { name: 'Coinbase', lat: 37.7749, lon: -122.4194 }, to: { name: 'Binance', lat: 1.3521, lon: 103.8198 }, color: COLORS.cyan },
   ];
 
-  const arcs: FlowArc[] = [];
-  for (let i = 0; i < 25; i++) {
-    const src = hubs[Math.floor(Math.random() * hubs.length)]!;
-    let dst = hubs[Math.floor(Math.random() * hubs.length)]!;
-    while (dst === src) dst = hubs[Math.floor(Math.random() * hubs.length)]!;
-
-    arcs.push({
-      id: `flow-${i}`,
-      sourceLat: src.lat + (Math.random() - 0.5) * 2,
-      sourceLon: src.lon + (Math.random() - 0.5) * 2,
-      targetLat: dst.lat + (Math.random() - 0.5) * 2,
-      targetLon: dst.lon + (Math.random() - 0.5) * 2,
-      amount: 10_000 + Math.random() * 990_000,
-      color: src.color,
-      label: `${src.name} → ${dst.name}`,
-    });
-  }
-  return arcs;
+  return routes.map((route, i) => ({
+    id: `flow-${i}`,
+    sourceLat: route.from.lat,
+    sourceLon: route.from.lon,
+    targetLat: route.to.lat,
+    targetLon: route.to.lon,
+    amount: 0, // actual amounts unknown — will be populated if whale data available
+    color: route.color,
+    label: `${route.from.name} → ${route.to.name}`,
+  }));
 }
 
 // ── MapLibre dark style (original worldmonitor basemap — CARTO dark_all) ────
@@ -176,7 +216,7 @@ export class SolanaDeckGlobe {
     clusters: [],
     depinNodes: [],
     flowArcs: [],
-    defiBubbles: [...DEFI_LOCATIONS],
+    defiBubbles: [], // populated by fetchDefiLocations()
   };
   private statsOverlay: HTMLElement;
   private legendOverlay: HTMLElement;
@@ -253,15 +293,17 @@ export class SolanaDeckGlobe {
   // ── Load data for all modes ───────────────────────────────────────────────
   private async loadData(): Promise<void> {
     try {
-      const [validatorData, depinNodes] = await Promise.all([
+      const [validatorData, depinNodes, defiLocations] = await Promise.all([
         fetchValidatorGeoData(),
         fetchDePINNodes(),
+        fetchDefiLocations(),
       ]);
 
       this.data.validators = validatorData.validators;
       this.data.clusters = validatorData.clusters;
       this.data.depinNodes = depinNodes;
       this.data.flowArcs = generateFlowArcs();
+      this.data.defiBubbles = defiLocations;
 
       console.log(`[DeckGlobe] Data loaded: ${this.data.validators.length} validators, ${this.data.depinNodes.length} DePIN nodes`);
       this.updateLayers();

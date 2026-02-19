@@ -1,5 +1,5 @@
-// MEV & Jito service — Jito tip data, bundle stats
-// Uses Jito REST API with calibrated simulated bundles
+// MEV & Jito service — Jito tip data + real bundle history
+// Uses Jito REST API for tip floor + bundle history endpoints
 
 export interface MevBundle {
   bundleId: string;
@@ -38,20 +38,7 @@ const CACHE_TTL = 30_000; // 30s
 let lastTipFloor: JitoTipFloor | null = null;
 
 const JITO_TIP_FLOOR_URL = 'https://bundles.jito.wtf/api/v1/bundles/tip_floor';
-
-const TOP_SEARCHERS = [
-  { name: 'jito-searcher-1', share: 0.18 },
-  { name: 'wintermute-mev', share: 0.14 },
-  { name: 'jump-arb', share: 0.12 },
-  { name: 'raydium-arb', share: 0.10 },
-  { name: 'orca-backrun', share: 0.08 },
-  { name: 'drift-liq', share: 0.06 },
-  { name: 'phantom-backrun', share: 0.05 },
-  { name: 'flashbots-sol', share: 0.04 },
-];
-
-const BUNDLE_TYPES: MevBundle['type'][] = ['arb', 'backrun', 'sandwich', 'liquidation', 'unknown'];
-const BUNDLE_TYPE_WEIGHTS = [0.35, 0.25, 0.15, 0.10, 0.15]; // weighted distribution
+const JITO_BUNDLE_HISTORY_URL = 'https://bundles.jito.wtf/api/v1/bundles/history';
 
 async function fetchJitoTipFloor(): Promise<JitoTipFloor | null> {
   try {
@@ -76,107 +63,121 @@ async function fetchJitoTipFloor(): Promise<JitoTipFloor | null> {
   }
 }
 
-function getWeightedBundleType(): MevBundle['type'] {
-  const r = Math.random();
-  let cumulative = 0;
-  for (let i = 0; i < BUNDLE_TYPES.length; i++) {
-    cumulative += BUNDLE_TYPE_WEIGHTS[i]!;
-    if (r <= cumulative) return BUNDLE_TYPES[i]!;
-  }
+// Classify bundle type by analyzing tip amount patterns
+function classifyBundleType(tipLamports: number, txCount: number): MevBundle['type'] {
+  if (txCount === 3) return 'sandwich';
+  if (tipLamports > 500_000_000) return 'liquidation'; // > 0.5 SOL tip → likely liquidation
+  if (tipLamports > 100_000_000) return 'arb'; // > 0.1 SOL → arb
+  if (txCount === 2) return 'backrun';
   return 'unknown';
 }
 
-function generateRecentBundles(count: number, tipFloor: JitoTipFloor | null): MevBundle[] {
-  const now = Date.now();
-  const bundles: MevBundle[] = [];
-  const chars = 'abcdef0123456789';
-
-  for (let i = 0; i < count; i++) {
-    const type = getWeightedBundleType();
-    let tipLamports: number;
-
-    if (tipFloor && tipFloor.p25 > 0) {
-      // Calibrate from real Jito tip floor data
-      const p = Math.random();
-      const base = p < 0.25 ? tipFloor.p25
-        : p < 0.50 ? tipFloor.p50
-        : p < 0.75 ? tipFloor.p75
-        : tipFloor.p99;
-      // Add type-specific multiplier
-      const typeMultiplier = type === 'sandwich' ? 2.5
-        : type === 'liquidation' ? 4.0
-        : type === 'arb' ? 1.5
-        : type === 'backrun' ? 1.2
-        : 1.0;
-      tipLamports = Math.floor(base * typeMultiplier * (0.7 + Math.random() * 0.6));
-    } else {
-      // Fallback realistic tips
-      const tipBase = type === 'sandwich' ? 50_000_000
-        : type === 'liquidation' ? 100_000_000
-        : type === 'arb' ? 20_000_000
-        : 10_000_000;
-      tipLamports = Math.floor(tipBase * (0.3 + Math.random() * 3));
-    }
-
-    const txCount = type === 'sandwich' ? 3 : Math.floor(2 + Math.random() * 5);
-    const id = Array.from({ length: 64 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-
-    bundles.push({
-      bundleId: id,
-      tipLamports,
-      txCount,
-      slot: 280_000_000 + Math.floor(Math.random() * 1_000_000),
-      timestamp: now - Math.floor(Math.random() * 3_600_000),
-      landedTxCount: Math.max(1, txCount - Math.floor(Math.random() * 2)),
-      type,
+// Fetch real bundle data from Jito history endpoint
+async function fetchRealBundles(): Promise<MevBundle[]> {
+  try {
+    const res = await fetch(JITO_BUNDLE_HISTORY_URL + '?limit=20', {
+      signal: AbortSignal.timeout(6000),
+      headers: { 'Accept': 'application/json' },
     });
-  }
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items: Record<string, unknown>[] = Array.isArray(data) ? data : data.bundles || data.data || [];
 
-  return bundles.sort((a, b) => b.timestamp - a.timestamp);
+    return items.slice(0, 20).map((b) => {
+      const tipLamports = Number(b.landed_tip_lamports || b.tip_lamports || b.tipped_lamports || 0);
+      const txCount = Number(b.num_transactions || b.tx_count || (Array.isArray(b.transactions) ? b.transactions.length : 3));
+      const slot = Number(b.slot || 0);
+      const ts = b.timestamp ? new Date(b.timestamp as string).getTime() : Date.now() - slot * 400;
+
+      return {
+        bundleId: String(b.bundle_id || b.uuid || b.id || `jito-${slot}`),
+        tipLamports,
+        txCount,
+        slot,
+        timestamp: ts > 0 ? ts : Date.now(),
+        landedTxCount: Number(b.landed_tx_count || b.num_landed_transactions || txCount),
+        type: classifyBundleType(tipLamports, txCount),
+      };
+    });
+  } catch (e) {
+    console.warn('[MEV] Jito bundle history fetch failed:', e);
+    return [];
+  }
+}
+
+// Fetch Jito validator stake percentage from on-chain data
+async function fetchJitoStakePercent(): Promise<number> {
+  try {
+    const res = await fetch('https://api.mainnet-beta.solana.com', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getVoteAccounts' }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return 0;
+    const data = await res.json();
+    const current = data.result?.current || [];
+    const totalStake = current.reduce((s: number, v: { activatedStake: number }) => s + v.activatedStake, 0);
+    // Jito validators typically run modified client. We approximate by looking at stake
+    // concentration. Jito holds ~37-40% of stake weight as of 2025.
+    // Without a perfect flag, return 0 to indicate we couldn't compute it precisely.
+    return totalStake > 0 ? 0 : 0;
+  } catch {
+    return 0;
+  }
 }
 
 export async function fetchMevStats(): Promise<MevStats> {
   const now = Date.now();
   if (cachedStats && now - lastFetch < CACHE_TTL) return cachedStats;
 
-  // Get real tip floor data from Jito
-  const tipFloor = await fetchJitoTipFloor();
+  // Fetch real data in parallel
+  const [tipFloor, realBundles, jitoStake] = await Promise.all([
+    fetchJitoTipFloor(),
+    fetchRealBundles(),
+    fetchJitoStakePercent(),
+  ]);
 
-  // Generate calibrated bundles
-  const recentBundles = generateRecentBundles(15, tipFloor);
-  const totalTips = recentBundles.reduce((s, b) => s + b.tipLamports, 0);
+  const bundles = realBundles.length > 0 ? realBundles : [];
+  const totalTips = bundles.reduce((s, b) => s + b.tipLamports, 0);
+  const avgTipPerBundle = bundles.length > 0 ? Math.floor(totalTips / bundles.length) : (tipFloor?.p50 || 0);
 
-  // Realistic 24h estimates based on Solana's ~1200-1500 bundles/hour
-  const bundlesPerHour = 1200 + Math.floor(Math.random() * 300);
-  const totalBundles24h = bundlesPerHour * 24;
-  const avgTipPerBundle = totalTips > 0 ? Math.floor(totalTips / recentBundles.length) : 15_000_000;
-  const totalTipsLamports = avgTipPerBundle * totalBundles24h;
-  const totalTipsSol = totalTipsLamports / 1e9;
+  // Estimate 24h totals from tip floor data if we have it
+  // Solana processes ~1200-1500 MEV bundles/hour based on public Jito stats
+  const bundlesPerHour = tipFloor
+    ? Math.round(1200 + (tipFloor.p50 > 100000 ? 300 : 0))
+    : 0;
+  const totalBundles24h = bundlesPerHour > 0 ? bundlesPerHour * 24 : 0;
+  const totalTipsLamports = totalBundles24h > 0 && avgTipPerBundle > 0
+    ? avgTipPerBundle * totalBundles24h
+    : 0;
 
-  // Tip distribution
-  const lowTips = recentBundles.filter(b => b.tipLamports < 10_000_000).length;
-  const highTips = recentBundles.filter(b => b.tipLamports > 50_000_000).length;
-  const medTips = recentBundles.length - lowTips - highTips;
-  const total = recentBundles.length || 1;
-
-  // Weighted random searcher selection
-  const searcherRand = Math.random();
-  let cumulative = 0;
-  let topSearcher = TOP_SEARCHERS[0]!;
-  for (const s of TOP_SEARCHERS) {
-    cumulative += s.share;
-    if (searcherRand <= cumulative) { topSearcher = s; break; }
+  // Find most frequent bundle type as top "searcher"
+  const typeCounts = new Map<string, number>();
+  for (const b of bundles) {
+    typeCounts.set(b.type, (typeCounts.get(b.type) || 0) + 1);
   }
+  let topType = 'unknown';
+  let topCount = 0;
+  for (const [type, count] of typeCounts) {
+    if (count > topCount) { topType = type; topCount = count; }
+  }
+
+  // Tip distribution from real bundles
+  const lowTips = bundles.filter(b => b.tipLamports < 10_000_000).length;
+  const highTips = bundles.filter(b => b.tipLamports > 50_000_000).length;
+  const medTips = bundles.length - lowTips - highTips;
+  const total = bundles.length || 1;
 
   const stats: MevStats = {
     totalTipsLamports,
-    totalTipsSol,
+    totalTipsSol: totalTipsLamports / 1e9,
     totalBundles24h,
     avgTipPerBundle,
-    topSearcher: topSearcher.name,
-    topSearcherBundles: Math.floor(totalBundles24h * topSearcher.share),
-    jitoStakePercent: 38.5 + (Math.random() * 4 - 2), // Jito is ~38-40% of stake
-    recentBundles,
+    topSearcher: topType !== 'unknown' ? `${topType}-searchers` : 'unknown',
+    topSearcherBundles: topCount,
+    jitoStakePercent: jitoStake > 0 ? jitoStake : 0, // 0 = unknown (don't fake it)
+    recentBundles: bundles.sort((a, b) => b.timestamp - a.timestamp),
     tipDistribution: {
       low: Math.round((lowTips / total) * 100),
       medium: Math.round((medTips / total) * 100),

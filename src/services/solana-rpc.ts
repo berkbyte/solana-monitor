@@ -50,21 +50,22 @@ async function rpcCall<T>(method: string, params: unknown[] = []): Promise<T> {
   return data.result;
 }
 
-function getRealisticFallback(): SolanaNetworkStatus {
-  const now = Date.now();
+function getUnavailableFallback(): SolanaNetworkStatus {
+  // Return zeros/defaults instead of fake random data when all RPCs fail
+  // The UI should detect health='down' and show a warning
   return {
-    tps: 2800 + Math.floor(Math.random() * 600),
-    slot: 280_000_000 + Math.floor(Math.random() * 5_000_000),
-    epoch: 650 + Math.floor(Math.random() * 20),
-    epochProgress: Math.floor(Math.random() * 100),
-    blockTime: 400,
-    validatorCount: 1850 + Math.floor(Math.random() * 100),
-    delinquentCount: 15 + Math.floor(Math.random() * 20),
-    totalStake: 380_000_000 + Math.floor(Math.random() * 10_000_000),
-    avgPriorityFee: 5000 + Math.floor(Math.random() * 15000),
-    medianPriorityFee: 2000 + Math.floor(Math.random() * 8000),
-    health: 'healthy',
-    timestamp: now,
+    tps: 0,
+    slot: 0,
+    epoch: 0,
+    epochProgress: 0,
+    blockTime: 0,
+    validatorCount: 0,
+    delinquentCount: 0,
+    totalStake: 0,
+    avgPriorityFee: 0,
+    medianPriorityFee: 0,
+    health: 'down',
+    timestamp: Date.now(),
   };
 }
 
@@ -117,12 +118,15 @@ export async function fetchNetworkStatus(): Promise<SolanaNetworkStatus> {
     }
   }
 
-  // All endpoints failed — use realistic fallback data
+  // All endpoints failed — return last cached data if available, otherwise unavailable
   consecutiveFailures++;
-  console.error(`[Solana RPC] All endpoints failed (attempt #${consecutiveFailures}), using fallback`);
-  if (cachedStatus && now - cachedStatus.timestamp < 60_000) return cachedStatus;
+  console.error(`[Solana RPC] All endpoints failed (attempt #${consecutiveFailures})`);
+  if (cachedStatus && now - cachedStatus.timestamp < 60_000) {
+    // Return stale cache but mark as degraded
+    return { ...cachedStatus, health: 'degraded' };
+  }
 
-  const fallback = getRealisticFallback();
+  const fallback = getUnavailableFallback();
   cachedStatus = fallback;
   lastFetch = now;
   return fallback;

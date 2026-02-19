@@ -1,5 +1,5 @@
-// Liquid Staking service — LST analytics using DeFi Llama yields + Jupiter prices
-// Fetches real APY data from DeFi Llama and peg prices from Jupiter
+// Liquid Staking service — LST analytics using DeFi Llama yields + Jupiter prices + CoinGecko
+// Fetches real APY data from DeFi Llama, peg prices from Jupiter, FDV/change from CoinGecko
 
 export interface LSTProvider {
   name: string;
@@ -28,13 +28,13 @@ export interface LSTSummary {
 const JUPITER_PRICE_API = 'https://api.jup.ag/price/v2';
 const DEFILLAMA_YIELDS = 'https://yields.llama.fi/pools';
 
-// Known Solana LST tokens
+// Known Solana LST tokens with CoinGecko IDs for market data
 const LST_CONFIG = [
-  { name: 'Marinade', symbol: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', llamaPool: 'marinade', validators: 450 },
-  { name: 'Jito', symbol: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', llamaPool: 'jito', validators: 200 },
-  { name: 'BlazeStake', symbol: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', llamaPool: 'blazestake', validators: 400 },
-  { name: 'Sanctum Infinity', symbol: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', llamaPool: 'sanctum', validators: 100 },
-  { name: 'Jupiter SOL', symbol: 'jupSOL', mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', llamaPool: 'jupiter', validators: 50 },
+  { name: 'Marinade', symbol: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', llamaPool: 'marinade', validators: 450, coingeckoId: 'msol' },
+  { name: 'Jito', symbol: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', llamaPool: 'jito', validators: 200, coingeckoId: 'jito-staked-sol' },
+  { name: 'BlazeStake', symbol: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', llamaPool: 'blazestake', validators: 400, coingeckoId: 'blazestake-staked-sol' },
+  { name: 'Sanctum Infinity', symbol: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', llamaPool: 'sanctum', validators: 100, coingeckoId: 'sanctum-infinity' },
+  { name: 'Jupiter SOL', symbol: 'jupSOL', mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', llamaPool: 'jupiter', validators: 50, coingeckoId: 'jupiter-staked-sol' },
 ];
 
 let cachedSummary: LSTSummary | null = null;
@@ -145,6 +145,27 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
 
   const totalSolStaked = 380_000_000; // approximate total SOL staked
 
+  // Fetch FDV and 24h change from CoinGecko for all LSTs
+  const cgIds = LST_CONFIG.map(c => c.coingeckoId).join(',');
+  const cgData = new Map<string, { fdv: number; change24h: number }>();
+  try {
+    const cgRes = await fetch(
+      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${cgIds}&order=market_cap_desc&per_page=10&page=1&sparkline=false&price_change_percentage=24h`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    if (cgRes.ok) {
+      const cgItems: Array<{ id: string; fully_diluted_valuation?: number; price_change_percentage_24h?: number }> = await cgRes.json();
+      for (const item of cgItems) {
+        cgData.set(item.id, {
+          fdv: item.fully_diluted_valuation || 0,
+          change24h: item.price_change_percentage_24h || 0,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[LST] CoinGecko market data fetch failed:', e);
+  }
+
   const providers: LSTProvider[] = LST_CONFIG.map(cfg => {
     const tvlUsd = protocolTvls.get(cfg.mint) || defaultTvls[cfg.mint] || 500_000_000;
     const tvlSol = tvlUsd / solPrice;
@@ -174,8 +195,8 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
       pegDeviation,
       validators: cfg.validators,
       marketShare,
-      fdv: tvlUsd * (1 + Math.random() * 0.2),
-      change24h: (Math.random() - 0.5) * 4,
+      fdv: cgData.get(cfg.coingeckoId)?.fdv || tvlUsd, // real FDV from CoinGecko
+      change24h: cgData.get(cfg.coingeckoId)?.change24h || 0, // real 24h change from CoinGecko
     };
   });
 
