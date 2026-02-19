@@ -1,7 +1,37 @@
 // Whale Watch service — track large wallet movements on Solana
-// Attempts Helius Enhanced Transactions API, falls back to simulated data
+// Uses public Solana RPC (free, no API key) with Helius as optional upgrade
 
 const HELIUS_RPC = import.meta.env.VITE_HELIUS_RPC_URL || '';
+
+// Public RPCs — free, no key needed
+const PUBLIC_RPCS = [
+  'https://api.mainnet-beta.solana.com',
+  'https://solana-mainnet.g.alchemy.com/v2/demo',
+];
+
+function getRpcUrl(): string {
+  if (HELIUS_RPC) return HELIUS_RPC;
+  return PUBLIC_RPCS[Math.floor(Math.random() * PUBLIC_RPCS.length)]!;
+}
+
+// Rough SOL price cache (updated from CoinGecko)
+let cachedSolPrice = 150;
+let solPriceLastFetch = 0;
+
+async function fetchSolPrice(): Promise<number> {
+  if (Date.now() - solPriceLastFetch < 60_000) return cachedSolPrice;
+  try {
+    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      cachedSolPrice = data?.solana?.usd ?? cachedSolPrice;
+      solPriceLastFetch = Date.now();
+    }
+  } catch { /* keep cached */ }
+  return cachedSolPrice;
+}
 
 export interface WhaleTransaction {
   signature: string;
@@ -95,9 +125,9 @@ function getHeliusApiKey(): string | null {
 
 async function fetchFromHelius(apiKey: string): Promise<WhaleTransaction[]> {
   const walletEntries = Object.entries(KNOWN_WALLETS);
-  // Check 3 random wallets per refresh to spread load
   const selected = walletEntries.sort(() => Math.random() - 0.5).slice(0, 3);
   const results: WhaleTransaction[] = [];
+  const solPrice = await fetchSolPrice();
 
   for (const [address, label] of selected) {
     try {
@@ -110,12 +140,11 @@ async function fetchFromHelius(apiKey: string): Promise<WhaleTransaction[]> {
 
       for (const tx of txs) {
         if (!tx.signature) continue;
-        // Parse native transfers
         const nativeTransfers = tx.nativeTransfers || [];
         for (const nt of nativeTransfers) {
           const lamports = Math.abs(nt.amount || 0);
           const solAmount = lamports / 1e9;
-          const usdAmount = solAmount * 150; // rough SOL price
+          const usdAmount = solAmount * solPrice;
           if (usdAmount < WHALE_THRESHOLDS.low) continue;
 
           results.push({
@@ -135,11 +164,9 @@ async function fetchFromHelius(apiKey: string): Promise<WhaleTransaction[]> {
           });
         }
 
-        // Parse token transfers
         const tokenTransfers = tx.tokenTransfers || [];
         for (const tt of tokenTransfers) {
           const amount = tt.tokenAmount || 0;
-          // Rough USD estimate based on token
           const usdAmount = amount * (tt.mint?.includes('EPjFWdd5') ? 1 : 0.001);
           if (usdAmount < WHALE_THRESHOLDS.low) continue;
 
@@ -168,46 +195,183 @@ async function fetchFromHelius(apiKey: string): Promise<WhaleTransaction[]> {
   return results;
 }
 
-function generateSimulatedWhaleActivity(): WhaleTransaction[] {
-  const now = Date.now();
+// ── Public RPC fallback (free, no API key) ──────────────────────────────
+// Uses getSignaturesForAddress + getTransaction to find real whale movements
+
+async function rpcCall(method: string, params: unknown[]): Promise<unknown> {
+  const url = getRpcUrl();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`RPC ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message);
+  return json.result;
+}
+
+// We rotate through wallets across calls so we don't hammer rate limits
+let rpcWalletIndex = 0;
+
+async function fetchFromPublicRpc(): Promise<WhaleTransaction[]> {
   const walletEntries = Object.entries(KNOWN_WALLETS);
-  const count = 3 + Math.floor(Math.random() * 5);
-  const newTxs: WhaleTransaction[] = [];
-  const tokens = ['SOL', 'USDC', 'JUP', 'JTO', 'BONK', 'WIF', 'mSOL', 'PYTH', 'HNT', 'RNDR', 'RAY', 'ORCA'];
-  const types: WhaleTransaction['type'][] = ['transfer', 'swap', 'dex_trade', 'dex_trade', 'swap', 'stake', 'defi', 'transfer'];
+  const results: WhaleTransaction[] = [];
+  const solPrice = await fetchSolPrice();
 
-  for (let i = 0; i < count; i++) {
-    const [address, label] = walletEntries[Math.floor(Math.random() * walletEntries.length)]!;
-    const type = types[Math.floor(Math.random() * types.length)]!;
-    const baseMag = Math.random() < 0.05 ? 8_000_000
-      : Math.random() < 0.15 ? 3_000_000
-      : Math.random() < 0.35 ? 1_000_000
-      : Math.random() < 0.6 ? 500_000 : 150_000;
-    const amountUsd = baseMag * (0.5 + Math.random() * 1.5);
-    const token = type === 'stake' ? 'SOL' : tokens[Math.floor(Math.random() * tokens.length)]!;
-    const counterparties = walletEntries.filter(([a]) => a !== address);
-    const [, counterLabel] = counterparties[Math.floor(Math.random() * counterparties.length)]!;
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    const sig = Array.from({ length: 88 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-
-    newTxs.push({
-      signature: sig,
-      type,
-      wallet: address,
-      walletLabel: label,
-      direction: Math.random() > 0.5 ? 'in' : 'out',
-      amount: token === 'SOL' ? amountUsd / 150 : amountUsd,
-      amountUsd,
-      tokenSymbol: token,
-      tokenMint: '',
-      counterparty: '',
-      counterpartyLabel: counterLabel,
-      timestamp: now - Math.floor(Math.random() * 3_600_000),
-      severity: classifyWhaleTransaction(amountUsd),
-    });
+  // Check 2 wallets per refresh (rotating), keeps us well within free rate limits
+  const walletsToCheck: [string, string][] = [];
+  for (let i = 0; i < 2; i++) {
+    walletsToCheck.push(walletEntries[rpcWalletIndex % walletEntries.length] as [string, string]);
+    rpcWalletIndex++;
   }
 
-  return newTxs;
+  for (const [address, label] of walletsToCheck) {
+    try {
+      // Step 1: Get recent signatures
+      const sigs = await rpcCall('getSignaturesForAddress', [
+        address,
+        { limit: 5, commitment: 'confirmed' },
+      ]) as Array<{ signature: string; blockTime?: number; err?: unknown }>;
+
+      if (!Array.isArray(sigs) || sigs.length === 0) continue;
+
+      // Step 2: Fetch full transaction details for each
+      for (const sigInfo of sigs) {
+        if (sigInfo.err) continue; // skip failed TXs
+
+        try {
+          const tx = await rpcCall('getTransaction', [
+            sigInfo.signature,
+            { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' },
+          ]) as {
+            blockTime?: number;
+            meta?: {
+              preBalances?: number[];
+              postBalances?: number[];
+              preTokenBalances?: Array<{ accountIndex: number; mint: string; uiTokenAmount?: { uiAmount: number } }>;
+              postTokenBalances?: Array<{ accountIndex: number; mint: string; uiTokenAmount?: { uiAmount: number } }>;
+              err?: unknown;
+            };
+            transaction?: {
+              message?: {
+                accountKeys?: Array<{ pubkey: string } | string>;
+              };
+            };
+          } | null;
+
+          if (!tx?.meta || tx.meta.err) continue;
+
+          const accountKeys = tx.transaction?.message?.accountKeys ?? [];
+          const getKey = (k: { pubkey: string } | string): string =>
+            typeof k === 'string' ? k : k.pubkey;
+
+          // Find this wallet's index in the account keys
+          const walletIdx = accountKeys.findIndex(k => getKey(k) === address);
+          if (walletIdx === -1) continue;
+
+          const preBalances = tx.meta.preBalances || [];
+          const postBalances = tx.meta.postBalances || [];
+
+          // ── Native SOL movement ──
+          if (walletIdx < preBalances.length && walletIdx < postBalances.length) {
+            const preLamports = preBalances[walletIdx]!;
+            const postLamports = postBalances[walletIdx]!;
+            const diffLamports = postLamports - preLamports;
+            const solAmount = Math.abs(diffLamports) / 1e9;
+            const usdAmount = solAmount * solPrice;
+
+            if (usdAmount >= WHALE_THRESHOLDS.low) {
+              // Find counterparty — the account with the opposite largest balance change
+              let counterpartyAddr = '';
+              let maxCounterChange = 0;
+              for (let j = 0; j < accountKeys.length; j++) {
+                if (j === walletIdx) continue;
+                if (j < preBalances.length && j < postBalances.length) {
+                  const change = Math.abs((postBalances[j]!) - (preBalances[j]!));
+                  if (change > maxCounterChange) {
+                    maxCounterChange = change;
+                    counterpartyAddr = getKey(accountKeys[j]!);
+                  }
+                }
+              }
+
+              results.push({
+                signature: sigInfo.signature,
+                type: 'transfer',
+                wallet: address,
+                walletLabel: label,
+                direction: diffLamports > 0 ? 'in' : 'out',
+                amount: solAmount,
+                amountUsd: usdAmount,
+                tokenSymbol: 'SOL',
+                tokenMint: 'So11111111111111111111111111111111111111112',
+                counterparty: counterpartyAddr,
+                counterpartyLabel: getWalletLabel(counterpartyAddr),
+                timestamp: (sigInfo.blockTime || Math.floor(Date.now() / 1000)) * 1000,
+                severity: classifyWhaleTransaction(usdAmount),
+              });
+            }
+          }
+
+          // ── SPL Token movements ──
+          const preTokens = tx.meta.preTokenBalances || [];
+          const postTokens = tx.meta.postTokenBalances || [];
+
+          // Group by mint
+          const tokenChanges = new Map<string, { pre: number; post: number }>();
+          for (const tb of preTokens) {
+            if (tb.accountIndex === walletIdx) {
+              const key = tb.mint;
+              const existing = tokenChanges.get(key) || { pre: 0, post: 0 };
+              existing.pre += tb.uiTokenAmount?.uiAmount ?? 0;
+              tokenChanges.set(key, existing);
+            }
+          }
+          for (const tb of postTokens) {
+            if (tb.accountIndex === walletIdx) {
+              const key = tb.mint;
+              const existing = tokenChanges.get(key) || { pre: 0, post: 0 };
+              existing.post += tb.uiTokenAmount?.uiAmount ?? 0;
+              tokenChanges.set(key, existing);
+            }
+          }
+
+          for (const [mint, { pre, post }] of tokenChanges) {
+            const diff = post - pre;
+            const absAmount = Math.abs(diff);
+            // USDC / USDT are ~$1, otherwise rough estimate
+            const isStable = mint.startsWith('EPjFWdd5') || mint.startsWith('Es9vMF');
+            const usdAmount = isStable ? absAmount : absAmount * 0.001;
+            if (usdAmount < WHALE_THRESHOLDS.low) continue;
+
+            results.push({
+              signature: sigInfo.signature,
+              type: 'transfer',
+              wallet: address,
+              walletLabel: label,
+              direction: diff > 0 ? 'in' : 'out',
+              amount: absAmount,
+              amountUsd: usdAmount,
+              tokenSymbol: isStable ? (mint.startsWith('EPjFWdd5') ? 'USDC' : 'USDT') : 'SPL',
+              tokenMint: mint,
+              counterparty: '',
+              counterpartyLabel: '—',
+              timestamp: (sigInfo.blockTime || Math.floor(Date.now() / 1000)) * 1000,
+              severity: classifyWhaleTransaction(usdAmount),
+            });
+          }
+        } catch {
+          continue; // skip individual TX failures
+        }
+      }
+    } catch {
+      continue; // skip wallet on error
+    }
+  }
+
+  return results;
 }
 
 export async function fetchWhaleTransactions(): Promise<WhaleTransaction[]> {
@@ -216,7 +380,7 @@ export async function fetchWhaleTransactions(): Promise<WhaleTransaction[]> {
 
   let newTxs: WhaleTransaction[] = [];
 
-  // Try Helius Enhanced Transactions API
+  // Try Helius Enhanced Transactions API first (richer data)
   if (!heliusFailed) {
     const apiKey = getHeliusApiKey();
     if (apiKey) {
@@ -228,9 +392,13 @@ export async function fetchWhaleTransactions(): Promise<WhaleTransaction[]> {
     }
   }
 
-  // Fallback: generate simulated whale activity
+  // Fallback: public Solana RPC (free, no API key required)
   if (newTxs.length === 0) {
-    newTxs = generateSimulatedWhaleActivity();
+    try {
+      newTxs = await fetchFromPublicRpc();
+    } catch {
+      // silent — will just show existing history
+    }
   }
 
   // Merge, deduplicate, trim
