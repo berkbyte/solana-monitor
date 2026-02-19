@@ -116,6 +116,10 @@ export class App {
 
   private renderLayout(): void {
     this.container.innerHTML = `
+      <div class="mobile-desktop-notice">
+        <span>🖥</span> For the best experience, use desktop
+        <button class="mobile-notice-close" id="mobileNoticeClose">✕</button>
+      </div>
       <div class="header">
         <div class="header-left">
           <span class="logo">SOLANA MONITOR</span>
@@ -760,6 +764,12 @@ export class App {
 
     // Theme toggle
     const themeBtn = document.getElementById('headerThemeToggle');
+
+    // Mobile desktop notice dismiss
+    const mobileNoticeClose = document.getElementById('mobileNoticeClose');
+    mobileNoticeClose?.addEventListener('click', () => {
+      mobileNoticeClose.closest('.mobile-desktop-notice')?.classList.add('hidden');
+    });
 
     themeBtn?.addEventListener('click', () => {
       const current = getCurrentTheme();
