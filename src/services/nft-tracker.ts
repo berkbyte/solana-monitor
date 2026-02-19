@@ -25,45 +25,61 @@ let cachedSummary: NFTSummary | null = null;
 let lastFetch = 0;
 const CACHE_TTL = 300_000; // 5 min
 
-// Well-known Solana NFT collections for fallback data
-const KNOWN_COLLECTIONS: Array<Omit<NFTCollection, 'volume24h' | 'volumeChange24h'>> = [
-  { name: 'Mad Lads', slug: 'mad_lads', floorPrice: 85, listed: 120, supply: 10000, holders: 6200, marketplace: 'tensor' },
-  { name: 'Tensorians', slug: 'tensorians', floorPrice: 25, listed: 280, supply: 10000, holders: 5800, marketplace: 'tensor' },
-  { name: 'Claynosaurz', slug: 'claynosaurz', floorPrice: 22, listed: 350, supply: 10000, holders: 5100, marketplace: 'both' },
-  { name: 'Famous Fox Federation', slug: 'famous_fox_federation', floorPrice: 18, listed: 240, supply: 7777, holders: 4200, marketplace: 'both' },
-  { name: 'Okay Bears', slug: 'okay_bears', floorPrice: 12, listed: 450, supply: 10000, holders: 4800, marketplace: 'magiceden' },
-  { name: 'DeGods', slug: 'degods', floorPrice: 8, listed: 500, supply: 10000, holders: 3900, marketplace: 'both' },
-  { name: 'Solana Monkey Business', slug: 'solana_monkey_business', floorPrice: 15, listed: 180, supply: 5000, holders: 3200, marketplace: 'both' },
-  { name: 'Bonk NFTs', slug: 'bonk_nfts', floorPrice: 3, listed: 800, supply: 15000, holders: 8000, marketplace: 'tensor' },
-  { name: 'Marinade Chefs', slug: 'marinade_chefs', floorPrice: 5, listed: 150, supply: 5000, holders: 2800, marketplace: 'tensor' },
-  { name: 'Aurory', slug: 'aurory', floorPrice: 4, listed: 320, supply: 10000, holders: 4100, marketplace: 'magiceden' },
+// Top Solana NFT collections — slug must match Magic Eden /v2/collections/{slug}/stats
+const TOP_COLLECTIONS = [
+  { name: 'Mad Lads', slug: 'mad_lads', supply: 10000, marketplace: 'tensor' as const },
+  { name: 'Tensorians', slug: 'tensorians', supply: 10000, marketplace: 'tensor' as const },
+  { name: 'Claynosaurz', slug: 'claynosaurz', supply: 10000, marketplace: 'both' as const },
+  { name: 'Famous Fox Federation', slug: 'famous_fox_federation', supply: 7777, marketplace: 'both' as const },
+  { name: 'Okay Bears', slug: 'okay_bears', supply: 10000, marketplace: 'magiceden' as const },
+  { name: 'DeGods', slug: 'degods', supply: 10000, marketplace: 'both' as const },
+  { name: 'Solana Monkey Business', slug: 'solana_monkey_business', supply: 5000, marketplace: 'both' as const },
+  { name: 'Bonk NFTs', slug: 'bonk_nfts', supply: 15000, marketplace: 'tensor' as const },
+  { name: 'Marinade Chefs', slug: 'marinade_chefs', supply: 5000, marketplace: 'tensor' as const },
+  { name: 'Aurory', slug: 'aurory', supply: 10000, marketplace: 'magiceden' as const },
 ];
 
 async function fetchFromMagicEden(): Promise<NFTCollection[]> {
   try {
-    const res = await fetch(
-      'https://api-mainnet.magiceden.dev/v2/marketplace/popular_collections?timeRange=1d&limit=10',
-      {
-        signal: AbortSignal.timeout(8000),
-        headers: { 'Accept': 'application/json' },
-      }
+    // Fetch per-collection stats in parallel (the popular_collections endpoint is deprecated)
+    const results = await Promise.allSettled(
+      TOP_COLLECTIONS.map(async (col) => {
+        const res = await fetch(
+          `https://api-mainnet.magiceden.dev/v2/collections/${col.slug}/stats`,
+          {
+            signal: AbortSignal.timeout(8000),
+            headers: { 'Accept': 'application/json' },
+          }
+        );
+        if (!res.ok) return null;
+        const d = await res.json() as Record<string, unknown>;
+        const floorPrice = ((d.floorPrice as number) || 0) / 1e9;
+        const avgPrice = ((d.avgPrice24hr as number) || 0) / 1e9;
+        const listed = (d.listedCount as number) || 0;
+        const volumeAll = ((d.volumeAll as number) || 0) / 1e9;
+        return {
+          name: col.name,
+          slug: col.slug,
+          floorPrice,
+          volume24h: avgPrice * listed > 0 ? avgPrice * listed : 0, // best estimate
+          volumeChange24h: 0, // not available from this endpoint
+          listed,
+          supply: col.supply,
+          holders: 0, // not available from this endpoint
+          marketplace: col.marketplace,
+          _volumeAll: volumeAll, // for sorting
+        } as NFTCollection & { _volumeAll: number };
+      })
     );
-    if (!res.ok) return [];
-    const data = await res.json();
-    if (!Array.isArray(data)) return [];
 
-    return data.map((c: Record<string, unknown>) => ({
-      name: (c.name as string) || 'Unknown',
-      slug: (c.symbol as string) || '',
-      image: (c.image as string) || undefined,
-      floorPrice: ((c.floorPrice as number) || 0) / 1e9, // lamports to SOL
-      volume24h: ((c.volumeAll as number) || 0) / 1e9,
-      volumeChange24h: typeof c.volumeChange === 'number' ? Math.round(c.volumeChange) : 0,
-      listed: (c.listedCount as number) || 0,
-      supply: (c.totalItems as number) || 10000,
-      holders: typeof c.holders === 'number' ? c.holders : 0,
-      marketplace: 'magiceden' as const,
-    })).filter((c: NFTCollection) => c.floorPrice > 0);
+    const collections = results
+      .filter((r): r is PromiseFulfilledResult<(NFTCollection & { _volumeAll: number }) | null> => r.status === 'fulfilled')
+      .map(r => r.value)
+      .filter((c): c is NFTCollection & { _volumeAll: number } => c !== null && c.floorPrice > 0)
+      .sort((a, b) => b._volumeAll - a._volumeAll)
+      .map(({ _volumeAll: _, ...c }) => c as NFTCollection);
+
+    return collections;
   } catch (e) {
     console.warn('[NFT] Magic Eden API failed:', e);
     return [];
@@ -71,11 +87,17 @@ async function fetchFromMagicEden(): Promise<NFTCollection[]> {
 }
 
 function generateFallbackNFTData(): NFTCollection[] {
-  // Static fallback with known approximate values (no Math.random)
-  return KNOWN_COLLECTIONS.map(c => ({
-    ...c,
-    volume24h: 0, // unknown — show 0 rather than fake
+  // Static fallback — all zeros for price fields since we can't verify
+  return TOP_COLLECTIONS.map(c => ({
+    name: c.name,
+    slug: c.slug,
+    floorPrice: 0,
+    volume24h: 0,
     volumeChange24h: 0,
+    listed: 0,
+    supply: c.supply,
+    holders: 0,
+    marketplace: c.marketplace,
   }));
 }
 
