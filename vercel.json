@@ -1,4 +1,11 @@
 {
+  "functions": {
+    "api/dexscreener-token.js": { "maxDuration": 30 },
+    "api/helium-hotspots.js": { "maxDuration": 60 },
+    "api/validators-app.js": { "maxDuration": 60 },
+    "api/solana-rpc-proxy.js": { "maxDuration": 60 },
+    "api/whale-transactions.js": { "maxDuration": 60 }
+  },
   "headers": [
     {
       "source": "/assets/(.*)",
