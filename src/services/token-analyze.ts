@@ -38,10 +38,19 @@ export interface TokenAnalysis {
   freezeAuthority: 'revoked' | 'active' | 'unknown';
   topHolderPercent: number;
   top10HolderPercent: number;
+  topHolders: HolderInfo[];  // top 10 filtered (pools excluded)
   lpBurned: boolean;
   liquidityLocked: boolean;
   honeypotRisk: boolean;
   lastChecked: number;
+}
+
+export interface HolderInfo {
+  owner: string;       // wallet address
+  pct: number;         // percentage of supply
+  uiAmount: number;    // token amount
+  label?: string;      // known label (Creator, etc.)
+  isInsider: boolean;
 }
 
 export interface RiskFactor {
@@ -63,23 +72,36 @@ export async function analyzeTokenCA(mint: string): Promise<TokenAnalysis | null
   }
 
   try {
-    // Fetch from DexScreener
-    const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
-      signal: AbortSignal.timeout(10_000),
+    // Fetch from DexScreener via server-side proxy (avoids CORS/anti-bot)
+    const res = await fetch(`/api/dexscreener-token?mint=${encodeURIComponent(mint)}`, {
+      signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn('[TokenAnalyze] Proxy returned', res.status);
+      return null;
+    }
     const data = await res.json();
     const pairs = data.pairs;
-    if (!pairs || pairs.length === 0) return null;
+    if (!pairs || pairs.length === 0) {
+      console.warn('[TokenAnalyze] No pairs returned for', mint);
+      return null;
+    }
 
-    // Use the most liquid pair
-    const pair = pairs.sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
-      ((b.liquidity as { usd?: number })?.usd || 0) - ((a.liquidity as { usd?: number })?.usd || 0)
-    )[0];
+    // Proxy already sorts by liquidity; take the first (most liquid) pair
+    const pair = pairs[0];
+    console.log('[TokenAnalyze] Best pair:', pair.dexId, 'liquidity:', JSON.stringify(pair.liquidity), 'price:', pair.priceUsd);
 
     const priceUsd = parseFloat(pair.priceUsd || '0');
     const volume24h = pair.volume?.h24 || 0;
-    const liquidity = pair.liquidity?.usd || 0;
+    // Handle both {usd: N} object, plain number, and missing (pump.fun) formats
+    let liquidity = typeof pair.liquidity === 'number' ? pair.liquidity : (pair.liquidity?.usd || 0);
+    // Pump.fun and bonding-curve DEXes often don't report liquidity field.
+    // For these, estimate from FDV or marketCap if available.
+    if (liquidity === 0 && (pair.fdv > 0 || pair.marketCap > 0)) {
+      // Use marketCap as a rough liquidity proxy for bonding curve tokens
+      liquidity = pair.marketCap || pair.fdv || 0;
+      console.log('[TokenAnalyze] No liquidity field — using marketCap/fdv as estimate:', liquidity);
+    }
     const marketCap = pair.marketCap || pair.fdv || 0;
     const fdv = pair.fdv || marketCap;
     const pairCreatedAt = pair.pairCreatedAt || Date.now();
@@ -176,10 +198,12 @@ export async function analyzeTokenCA(mint: string): Promise<TokenAnalysis | null
     let honeypotRisk = false;
     let topHolderPercent = 0;
     let top10HolderPercent = 0;
+    let topHolders: HolderInfo[] = [];
 
     try {
-      const rugRes = await fetch(`https://api.rugcheck.xyz/v1/tokens/${mint}/report/summary`, {
-        signal: AbortSignal.timeout(6000),
+      // Use FULL report (not summary) — contains topHolders, markets, knownAccounts
+      const rugRes = await fetch(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, {
+        signal: AbortSignal.timeout(10000),
       });
       if (rugRes.ok) {
         const rug = await rugRes.json();
@@ -189,8 +213,11 @@ export async function analyzeTokenCA(mint: string): Promise<TokenAnalysis | null
 
         // Mint authority
         mintRevoked = !riskNames.some((n: string) => n.includes('mint') && (n.includes('enabled') || n.includes('authority')));
+        // Also check rug.mintAuthority field
+        if (rug.mintAuthority === null || rug.mintAuthority === '') mintRevoked = true;
         // Freeze authority
         freezeRevoked = !riskNames.some((n: string) => n.includes('freeze') && (n.includes('enabled') || n.includes('authority')));
+        if (rug.freezeAuthority === null || rug.freezeAuthority === '') freezeRevoked = true;
         // LP info — 'unlocked' in risk name means it's NOT burned/locked
         lpBurned = !riskNames.some((n: string) => (n.includes('lp') || n.includes('burn')) && (n.includes('unlocked') || n.includes('not burned') || n.includes('not burnt')));
         liquidityLocked = !riskNames.some((n: string) => n.includes('liquid') && n.includes('unlocked'));
@@ -201,30 +228,94 @@ export async function analyzeTokenCA(mint: string): Promise<TokenAnalysis | null
         );
         honeypotRisk = honeypotRisks.length > 0;
 
-        // Top holder concentration from RugCheck
-        if (typeof rug.topHolderConcentration === 'number') {
-          topHolderPercent = rug.topHolderConcentration;
-        } else if (rug.topHolders && Array.isArray(rug.topHolders) && rug.topHolders.length > 0) {
-          topHolderPercent = (rug.topHolders[0]?.pct || 0) * 100;
-          top10HolderPercent = rug.topHolders.slice(0, 10).reduce((s: number, h: { pct?: number }) => s + (h.pct || 0), 0) * 100;
+        // ========== TOP HOLDERS (filter out pools/AMMs) ==========
+        // Collect all market/pool pubkeys to filter them from holders
+        const marketPubkeys = new Set<string>();
+        if (Array.isArray(rug.markets)) {
+          for (const m of rug.markets) {
+            if (m.pubkey) marketPubkeys.add(m.pubkey);
+          }
         }
-        // RugCheck score: 0 = worst, ~1000 = best. Only flag extreme danger.
-        // Don't override honeypotRisk for moderate scores — causes false positives.
-        if (typeof rug.score === 'number' && rug.score < 50 && !honeypotRisk) {
-          honeypotRisk = true; // extremely low RugCheck score = strong danger signal
+        // Collect known AMM/system accounts
+        const knownAccounts: Record<string, { name?: string; type?: string }> = rug.knownAccounts || {};
+        const ammOwners = new Set<string>();
+        for (const [addr, info] of Object.entries(knownAccounts)) {
+          if (info.type === 'AMM' || info.type === 'RAYDIUM' || info.type === 'ORCA' ||
+              info.type === 'JUPITER' || info.type === 'SYSTEM') {
+            ammOwners.add(addr);
+          }
         }
-        // Use token owner concentration from risks
-        const concRisk = risks.find((r: { name: string }) => r.name?.toLowerCase().includes('concentration') || r.name?.toLowerCase().includes('top holder'));
-        if (concRisk && typeof concRisk.score === 'number') {
-          if (topHolderPercent === 0) topHolderPercent = Math.min(90, concRisk.score / 10);
+
+        // Known burn/dead addresses
+        const DEAD_ADDRESSES = new Set([
+          '1111111111111111111111111111111111',
+          '1nc1nerator11111111111111111111111111111111',
+        ]);
+
+        if (Array.isArray(rug.topHolders) && rug.topHolders.length > 0) {
+          // Filter: exclude pool pubkeys, AMM owners, and dead addresses
+          const filteredHolders = rug.topHolders.filter((h: any) => {
+            const owner = h.owner || '';
+            if (marketPubkeys.has(owner)) return false;  // pool address
+            if (ammOwners.has(owner)) return false;      // known AMM
+            if (DEAD_ADDRESSES.has(owner)) return false;  // burn address
+            // Also filter if knownAccounts labels this as AMM
+            const known = knownAccounts[owner];
+            if (known && (known.type === 'AMM' || known.name?.includes('Pump Fun') ||
+                known.name?.includes('Raydium') || known.name?.includes('Orca'))) return false;
+            return true;
+          });
+
+          console.log('[TokenAnalyze] Holders: total=', rug.topHolders.length,
+            'filtered=', filteredHolders.length,
+            'pools_excluded=', rug.topHolders.length - filteredHolders.length);
+
+          // Build top 10 holder list
+          topHolders = filteredHolders.slice(0, 10).map((h: any) => ({
+            owner: h.owner || '',
+            pct: h.pct || 0,
+            uiAmount: h.uiAmount || 0,
+            label: knownAccounts[h.owner]?.name || (h.insider ? 'Insider' : undefined),
+            isInsider: !!h.insider,
+          }));
+
+          if (topHolders.length > 0) {
+            const firstHolder = topHolders[0];
+            if (firstHolder) topHolderPercent = firstHolder.pct;
+            top10HolderPercent = topHolders.reduce((s, h) => s + h.pct, 0);
+          }
+        }
+
+        // RugCheck score interpretation:
+        // - For standard tokens: 0 = worst, ~1000 = best
+        // - For pump.fun tokens: score can be very low (e.g. 1) with empty risks[] = SAFE
+        // Only flag honeypot if score is low AND there are actual risk entries
+        if (typeof rug.score === 'number' && rug.score < 50 && risks.length > 0 && !honeypotRisk) {
+          honeypotRisk = true; // low score WITH actual risks = danger signal
+        }
+
+        // Use lpLockedPct from RugCheck if available (pump.fun returns this)
+        if (typeof rug.lpLockedPct === 'number' && rug.lpLockedPct > 50) {
+          liquidityLocked = true;
+          lpBurned = rug.lpLockedPct >= 99;
+        }
+        // Also check totalMarketLiquidity for LP lock info
+        if (typeof rug.totalMarketLiquidity === 'number' && rug.totalMarketLiquidity > 0) {
+          // Check if any market has locked LP
+          if (Array.isArray(rug.markets)) {
+            for (const m of rug.markets) {
+              if (m.lp?.lpLockedPct > 50) {
+                liquidityLocked = true;
+                if (m.lp.lpLockedPct >= 99) lpBurned = true;
+                break;
+              }
+            }
+          }
         }
       }
     } catch (e) {
       console.warn('[TokenAnalyze] RugCheck fetch failed, using unknowns:', e);
       // Mark as unknown rather than faking
-    }
-    if (top10HolderPercent === 0 && topHolderPercent > 0) {
-      top10HolderPercent = Math.min(100, topHolderPercent * 2.5);
     }
 
     if (!mintRevoked) {
@@ -305,6 +396,7 @@ export async function analyzeTokenCA(mint: string): Promise<TokenAnalysis | null
       freezeAuthority: freezeRevoked ? 'revoked' : 'active',
       topHolderPercent,
       top10HolderPercent,
+      topHolders,
       lpBurned,
       liquidityLocked,
       honeypotRisk,

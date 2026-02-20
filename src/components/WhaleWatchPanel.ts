@@ -28,7 +28,7 @@ export class WhaleWatchPanel extends Panel {
       title: 'Whale Watch',
       showCount: true,
       className: 'whale-watch-panel',
-      infoTooltip: 'Tracks large Solana transactions from known whale wallets. Severity: Critical ($5M+), High ($1M+), Medium ($500K+), Low ($100K+).',
+      infoTooltip: 'Tracks Solana transactions from known whale wallets, CEX, DEX & DeFi protocols. Severity: Critical ($2M+), High ($500K+), Medium ($100K+), Low ($25K+).',
     });
 
     this.addFilterControls();
@@ -92,7 +92,7 @@ export class WhaleWatchPanel extends Panel {
             </div>
             <div class="whale-detail">
               <span class="whale-amount" style="color: ${severityColor}">
-                ${this.formatAmount(entry.amountUsd)} ${escapeHtml(entry.tokenSymbol)}
+                ${entry.amountUsd > 0 ? this.formatAmount(entry.amountUsd) : this.formatTokenAmount(entry.amount)} ${escapeHtml(entry.tokenSymbol)}
               </span>
               <span class="whale-time">${timeAgo}</span>
             </div>
@@ -125,9 +125,12 @@ export class WhaleWatchPanel extends Panel {
   private getTypeIcon(type: string): string {
     switch (type) {
       case 'swap': return '⇄';
+      case 'dex_trade': return '⇄';
+      case 'defi': return '⚙';
       case 'transfer': return '↗';
       case 'stake': return '⊕';
       case 'nft_trade': return '◆';
+      case 'unknown': return '?';
       default: return '•';
     }
   }
@@ -136,6 +139,14 @@ export class WhaleWatchPanel extends Panel {
     if (usd >= 1e6) return `$${(usd / 1e6).toFixed(1)}M`;
     if (usd >= 1e3) return `$${(usd / 1e3).toFixed(0)}K`;
     return `$${usd.toFixed(0)}`;
+  }
+
+  private formatTokenAmount(amount: number): string {
+    if (amount >= 1e9) return `${(amount / 1e9).toFixed(1)}B`;
+    if (amount >= 1e6) return `${(amount / 1e6).toFixed(1)}M`;
+    if (amount >= 1e3) return `${(amount / 1e3).toFixed(1)}K`;
+    if (amount >= 1) return amount.toFixed(2);
+    return amount.toPrecision(3);
   }
 
   private timeAgo(ts: number): string {

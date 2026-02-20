@@ -1,0 +1,836 @@
+// Validator Geographic Data Service
+// Fetches ALL Solana validators with real stake, commission, version & client data
+// Pipeline:
+//   1. Solana RPC getVoteAccounts → real stake, commission, delinquent status
+//   2. Solana RPC getClusterNodes → real IP, version per node
+//   3. IP prefix → datacenter mapping (no external API needed, works in browser)
+// Falls back to deterministic datacenter distribution if geolocation unavailable
+
+import type { SolanaValidator, ValidatorCluster } from '@/types';
+
+// ── Cache ──────────────────────────────────────────────────────────────────────
+let cachedValidators: SolanaValidator[] | null = null;
+let cachedClusters: ValidatorCluster[] | null = null;
+let lastFetch = 0;
+const CACHE_TTL = 300_000; // 5 min
+
+// ── RPC endpoints (multiple for redundancy) ────────────────────────────────────
+const HELIUS_RPC = import.meta.env.VITE_HELIUS_RPC_URL || '';
+const VALIDATORS_APP_TOKEN = import.meta.env.VITE_VALIDATORS_APP_TOKEN || '';
+const VALIDATORS_APP_API = 'https://www.validators.app/api/v1/validators/mainnet-beta.json';
+
+const RPC_ENDPOINTS = [
+  HELIUS_RPC,
+  'https://api.mainnet-beta.solana.com',
+  'https://rpc.ankr.com/solana',
+].filter(Boolean);
+
+// ── Known datacenter coordinates ────────────────────────────────────────────
+interface DCLocation { lat: number; lon: number; city: string; country: string }
+
+const DC: Record<string, DCLocation> = {
+  // Major Solana validator hosting locations
+  'hetzner-fsn':    { lat: 50.3155, lon: 11.3271, city: 'Falkenstein',    country: 'DE' },
+  'hetzner-nbg':    { lat: 49.4521, lon: 11.0767, city: 'Nuremberg',     country: 'DE' },
+  'hetzner-hel':    { lat: 60.1699, lon: 24.9384, city: 'Helsinki',      country: 'FI' },
+  'hetzner-ash':    { lat: 39.0438, lon: -77.4874, city: 'Ashburn',      country: 'US' },
+  'equinix-dc':     { lat: 38.9072, lon: -77.0369, city: 'Washington DC', country: 'US' },
+  'equinix-ny':     { lat: 40.7128, lon: -74.0060, city: 'New York',     country: 'US' },
+  'equinix-ch':     { lat: 41.8781, lon: -87.6298, city: 'Chicago',      country: 'US' },
+  'equinix-am':     { lat: 52.3676, lon: 4.9041,  city: 'Amsterdam',     country: 'NL' },
+  'equinix-fr':     { lat: 50.1109, lon: 8.6821,  city: 'Frankfurt',     country: 'DE' },
+  'equinix-sg':     { lat: 1.3521,  lon: 103.8198, city: 'Singapore',    country: 'SG' },
+  'equinix-tk':     { lat: 35.6762, lon: 139.6503, city: 'Tokyo',        country: 'JP' },
+  'equinix-ld':     { lat: 51.5074, lon: -0.1278, city: 'London',        country: 'GB' },
+  'equinix-sy':     { lat: -33.8688, lon: 151.2093, city: 'Sydney',      country: 'AU' },
+  'aws-us-east':    { lat: 39.0438, lon: -77.4874, city: 'Ashburn',      country: 'US' },
+  'aws-us-west':    { lat: 45.5231, lon: -122.6765, city: 'Portland',    country: 'US' },
+  'aws-eu':         { lat: 50.1109, lon: 8.6821,  city: 'Frankfurt',     country: 'DE' },
+  'aws-ap-ne':      { lat: 35.6762, lon: 139.6503, city: 'Tokyo',        country: 'JP' },
+  'aws-ap-se':      { lat: 1.3521,  lon: 103.8198, city: 'Singapore',    country: 'SG' },
+  'gcp-us':         { lat: 41.2619, lon: -95.8608, city: 'Council Bluffs', country: 'US' },
+  'gcp-eu':         { lat: 50.4488, lon: 3.8187,  city: 'St. Ghislain',  country: 'BE' },
+  'ovh-gra':        { lat: 50.6292, lon: 3.0573,  city: 'Gravelines',    country: 'FR' },
+  'ovh-bhs':        { lat: 47.3820, lon: -70.5474, city: 'Beauharnois',  country: 'CA' },
+  'teraswitch-dal': { lat: 32.7767, lon: -96.7970, city: 'Dallas',       country: 'US' },
+  'latitude-mia':   { lat: 25.7617, lon: -80.1918, city: 'Miami',        country: 'US' },
+  'latitude-chi':   { lat: 41.8781, lon: -87.6298, city: 'Chicago',      country: 'US' },
+  'cherry-dal':     { lat: 32.7767, lon: -96.7960, city: 'Dallas',       country: 'US' },
+  'vultr-nj':       { lat: 40.7128, lon: -74.0060, city: 'New Jersey',   country: 'US' },
+  'vultr-ams':      { lat: 52.3676, lon: 4.9041,  city: 'Amsterdam',     country: 'NL' },
+  'digitalocean-ny': { lat: 40.7128, lon: -74.0060, city: 'New York',    country: 'US' },
+};
+
+const DC_KEYS = Object.keys(DC);
+
+// ── IP prefix → datacenter mapping (works entirely in browser, no API needed) ─
+const IP_PREFIX_MAP: Array<{ prefix: string; dc: string }> = [
+  // Hetzner — biggest Solana hosting provider (~40% of validators)
+  { prefix: '65.21.',    dc: 'hetzner-fsn' },
+  { prefix: '65.108.',   dc: 'hetzner-fsn' },
+  { prefix: '65.109.',   dc: 'hetzner-fsn' },
+  { prefix: '95.216.',   dc: 'hetzner-fsn' },
+  { prefix: '95.217.',   dc: 'hetzner-nbg' },
+  { prefix: '135.181.',  dc: 'hetzner-hel' },
+  { prefix: '148.251.',  dc: 'hetzner-nbg' },
+  { prefix: '168.119.',  dc: 'hetzner-fsn' },
+  { prefix: '49.12.',    dc: 'hetzner-fsn' },
+  { prefix: '49.13.',    dc: 'hetzner-nbg' },
+  { prefix: '157.90.',   dc: 'hetzner-fsn' },
+  { prefix: '5.9.',      dc: 'hetzner-fsn' },
+  { prefix: '5.161.',    dc: 'hetzner-ash' },
+  { prefix: '37.27.',    dc: 'hetzner-hel' },
+  { prefix: '167.235.',  dc: 'hetzner-fsn' },
+  { prefix: '128.140.',  dc: 'hetzner-nbg' },
+  { prefix: '116.202.',  dc: 'hetzner-fsn' },
+  { prefix: '116.203.',  dc: 'hetzner-fsn' },
+  { prefix: '78.46.',    dc: 'hetzner-fsn' },
+  { prefix: '78.47.',    dc: 'hetzner-nbg' },
+  { prefix: '88.198.',   dc: 'hetzner-fsn' },
+  { prefix: '88.99.',    dc: 'hetzner-fsn' },
+  { prefix: '138.201.',  dc: 'hetzner-fsn' },
+  { prefix: '136.243.',  dc: 'hetzner-fsn' },
+  { prefix: '159.69.',   dc: 'hetzner-nbg' },
+  { prefix: '195.201.',  dc: 'hetzner-nbg' },
+
+  // OVH
+  { prefix: '51.38.',    dc: 'ovh-gra' },
+  { prefix: '51.68.',    dc: 'ovh-gra' },
+  { prefix: '51.75.',    dc: 'ovh-gra' },
+  { prefix: '51.77.',    dc: 'ovh-gra' },
+  { prefix: '51.79.',    dc: 'ovh-bhs' },
+  { prefix: '51.81.',    dc: 'ovh-bhs' },
+  { prefix: '51.89.',    dc: 'ovh-gra' },
+  { prefix: '51.91.',    dc: 'ovh-gra' },
+  { prefix: '54.36.',    dc: 'ovh-gra' },
+  { prefix: '54.37.',    dc: 'ovh-gra' },
+  { prefix: '54.38.',    dc: 'ovh-gra' },
+  { prefix: '137.74.',   dc: 'ovh-gra' },
+  { prefix: '145.239.',  dc: 'ovh-gra' },
+  { prefix: '147.135.',  dc: 'ovh-bhs' },
+  { prefix: '158.69.',   dc: 'ovh-bhs' },
+  { prefix: '149.56.',   dc: 'ovh-bhs' },
+
+  // AWS (more-specific first)
+  { prefix: '3.',        dc: 'aws-us-east' },
+  { prefix: '13.',       dc: 'aws-us-east' },
+  { prefix: '18.',       dc: 'aws-us-east' },
+  { prefix: '34.',       dc: 'aws-us-west' },
+  { prefix: '35.',       dc: 'aws-us-west' },
+  { prefix: '44.',       dc: 'aws-us-east' },
+  { prefix: '52.',       dc: 'aws-us-east' },
+
+  // Google Cloud
+  { prefix: '34.66.',    dc: 'gcp-us' },
+  { prefix: '34.67.',    dc: 'gcp-us' },
+  { prefix: '34.68.',    dc: 'gcp-us' },
+  { prefix: '34.76.',    dc: 'gcp-eu' },
+  { prefix: '35.195.',   dc: 'gcp-us' },
+  { prefix: '35.234.',   dc: 'gcp-eu' },
+
+  // Equinix Metal
+  { prefix: '139.178.',  dc: 'equinix-dc' },
+  { prefix: '145.40.',   dc: 'equinix-dc' },
+  { prefix: '147.28.',   dc: 'equinix-ny' },
+  { prefix: '155.138.',  dc: 'equinix-ch' },
+  { prefix: '86.109.',   dc: 'equinix-am' },
+
+  // Teraswitch
+  { prefix: '141.98.',   dc: 'teraswitch-dal' },
+  { prefix: '206.217.',  dc: 'teraswitch-dal' },
+  { prefix: '74.118.',   dc: 'teraswitch-dal' },
+
+  // Latitude.sh
+  { prefix: '64.130.',   dc: 'latitude-mia' },
+  { prefix: '185.209.',  dc: 'latitude-mia' },
+
+  // Vultr
+  { prefix: '45.32.',    dc: 'vultr-nj' },
+  { prefix: '45.63.',    dc: 'vultr-nj' },
+  { prefix: '45.76.',    dc: 'vultr-nj' },
+  { prefix: '45.77.',    dc: 'vultr-nj' },
+  { prefix: '108.61.',   dc: 'vultr-nj' },
+  { prefix: '136.244.',  dc: 'vultr-nj' },
+  { prefix: '149.28.',   dc: 'vultr-nj' },
+  { prefix: '207.246.',  dc: 'vultr-nj' },
+  { prefix: '209.250.',  dc: 'vultr-ams' },
+
+  // DigitalOcean
+  { prefix: '128.199.',  dc: 'digitalocean-ny' },
+  { prefix: '134.209.',  dc: 'digitalocean-ny' },
+  { prefix: '137.184.',  dc: 'digitalocean-ny' },
+  { prefix: '138.197.',  dc: 'digitalocean-ny' },
+  { prefix: '142.93.',   dc: 'digitalocean-ny' },
+  { prefix: '143.110.',  dc: 'digitalocean-ny' },
+  { prefix: '157.245.',  dc: 'digitalocean-ny' },
+  { prefix: '159.65.',   dc: 'digitalocean-ny' },
+  { prefix: '161.35.',   dc: 'digitalocean-ny' },
+  { prefix: '164.90.',   dc: 'digitalocean-ny' },
+  { prefix: '165.22.',   dc: 'digitalocean-ny' },
+  { prefix: '167.71.',   dc: 'digitalocean-ny' },
+  { prefix: '170.64.',   dc: 'digitalocean-ny' },
+  { prefix: '174.138.',  dc: 'digitalocean-ny' },
+  { prefix: '178.128.',  dc: 'digitalocean-ny' },
+  { prefix: '188.166.',  dc: 'digitalocean-ny' },
+  { prefix: '206.189.',  dc: 'digitalocean-ny' },
+
+  // Cherry Servers
+  { prefix: '5.199.',    dc: 'cherry-dal' },
+  { prefix: '185.150.',  dc: 'cherry-dal' },
+];
+
+// Sort longest-prefix-first so more-specific matches win
+IP_PREFIX_MAP.sort((a, b) => b.prefix.length - a.prefix.length);
+
+// ── Resolve IP to datacenter location ──────────────────────────────────────
+function ipToLocation(ip: string): { dc: string; loc: DCLocation } | null {
+  if (!ip || ip.startsWith('127.') || ip.startsWith('10.') || ip.startsWith('192.168.') || ip === '0.0.0.0') return null;
+  for (const entry of IP_PREFIX_MAP) {
+    if (ip.startsWith(entry.prefix)) {
+      const loc = DC[entry.dc];
+      if (loc) return { dc: entry.dc, loc };
+    }
+  }
+  return null;
+}
+
+// ── Jitter: offset overlapping coordinates ──────────────────────────────────
+function addJitter(lat: number, lon: number, index: number): { lat: number; lon: number } {
+  const angle = (index * 137.508) * (Math.PI / 180);
+  const r = 0.12 + (index % 7) * 0.04;
+  return { lat: lat + r * Math.sin(angle), lon: lon + r * Math.cos(angle) };
+}
+
+// ── Detect client type from version string ──────────────────────────────────
+// Solana mainnet clients:
+//   Agave (ex-Solana Labs) → versions like "2.0.15", "2.1.6", "1.18.22"
+//   Jito-Solana fork       → versions like "2.0.15-jito", "1.18.22-jito"
+//   Firedancer (Jump)      → versions with "firedancer", "fd", "frankendancer"
+function detectClientType(version: string): SolanaValidator['clientType'] {
+  const v = version.toLowerCase().trim();
+  if (!v || v === 'unknown') return 'unknown';
+  if (v.includes('firedancer') || v.includes('frankendancer') || v.startsWith('fd')) return 'firedancer';
+  if (v.includes('jito')) return 'jito';
+  // Any remaining version on mainnet is Agave / Solana Labs
+  return 'solana-labs';
+}
+
+// ── Resolve location from datacenter text info ──────────────────────────────
+function resolveLocation(datacenter?: string, city?: string, _country?: string): DCLocation | null {
+  if (datacenter) {
+    const dcLower = datacenter.toLowerCase();
+    if (dcLower.includes('hetzner'))    return DC['hetzner-fsn']!;
+    if (dcLower.includes('equinix'))    return DC['equinix-dc']!;
+    if (dcLower.includes('ovh'))        return DC['ovh-gra']!;
+    if (dcLower.includes('aws') || dcLower.includes('amazon')) return DC['aws-us-east']!;
+    if (dcLower.includes('google') || dcLower.includes('gcp')) return DC['gcp-us']!;
+    if (dcLower.includes('teraswitch')) return DC['teraswitch-dal']!;
+    if (dcLower.includes('latitude'))   return DC['latitude-mia']!;
+    if (dcLower.includes('vultr'))      return DC['vultr-nj']!;
+    if (dcLower.includes('digitalocean')) return DC['digitalocean-ny']!;
+  }
+  if (city) {
+    const cl = city.toLowerCase();
+    for (const loc of Object.values(DC)) {
+      if (loc.city.toLowerCase().includes(cl)) return loc;
+    }
+  }
+  return null;
+}
+
+// ── RPC helper: try server proxy first, then direct endpoints ───────────────
+async function rpcCall(method: string, params: unknown[] = [], timeoutMs = 30000): Promise<unknown> {
+  // Strategy 1: Use the dev server proxy (Node.js → Solana RPC, no CORS/rate-limit issues)
+  try {
+    console.log(`[validator-geo] RPC ${method} → /api/solana-rpc-proxy (server-side)`);
+    const res = await fetch('/api/solana-rpc-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: AbortSignal.timeout(timeoutMs + 15000), // extra buffer for proxy overhead
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.result !== undefined) {
+        console.log(`[validator-geo] RPC ${method} → ✅ proxy success`);
+        return data.result;
+      }
+      if (data.error) {
+        console.warn(`[validator-geo] RPC ${method} → proxy returned error:`, data.error.message || data.error);
+      }
+    } else {
+      console.warn(`[validator-geo] RPC ${method} → proxy HTTP ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(`[validator-geo] RPC ${method} → proxy failed:`, (err as Error).message);
+  }
+
+  // Strategy 2: Direct browser → Solana RPC (may hit CORS / rate limits)
+  for (const endpoint of RPC_ENDPOINTS) {
+    try {
+      console.log(`[validator-geo] RPC ${method} → ${endpoint.replace(/\/v2\/.*/, '/v2/***').slice(0, 50)}... (direct)`);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) {
+        console.warn(`[validator-geo] RPC ${method} → HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      if (data.error) {
+        console.warn(`[validator-geo] RPC ${method} → JSON-RPC error:`, data.error.message || data.error);
+        continue;
+      }
+      if (data.result !== undefined) {
+        console.log(`[validator-geo] RPC ${method} → ✅ direct success`);
+        return data.result;
+      }
+    } catch (err) {
+      console.warn(`[validator-geo] RPC ${method} → exception:`, (err as Error).message || err);
+      continue;
+    }
+  }
+  return null;
+}
+
+// ── Fetch Jito validator set from Jito block engine API ─────────────────────
+async function fetchJitoVoteAccounts(): Promise<Set<string>> {
+  const jitoSet = new Set<string>();
+  try {
+    console.log('[validator-geo] Fetching Jito validator list...');
+    const res = await fetch('/api/jito-validators', {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      console.warn(`[validator-geo] Jito API → HTTP ${res.status}`);
+      return jitoSet;
+    }
+    const raw = await res.json();
+    const validators = Array.isArray(raw) ? raw : raw?.validators;
+    if (!Array.isArray(validators)) return jitoSet;
+    for (const v of validators) {
+      if (v.running_jito && v.vote_account) jitoSet.add(String(v.vote_account));
+    }
+    console.log(`[validator-geo] ✅ Jito: ${jitoSet.size} validators running Jito`);
+  } catch (err) {
+    console.warn('[validator-geo] Jito API failed:', (err as Error).message);
+  }
+  return jitoSet;
+}
+
+// ── Fetch from Marinade Finance public API (no key needed) ──────────────────
+// Has real lat/lon, names, commission, stake, version.
+// Jito detection done separately via Jito block engine API.
+async function fetchFromMarinade(): Promise<SolanaValidator[]> {
+  console.log('[validator-geo] Trying Marinade + Jito APIs...');
+  try {
+    // Fetch both in parallel
+    const [marinadeRes, jitoVotes] = await Promise.all([
+      fetch('/api/marinade-validators', { signal: AbortSignal.timeout(40000) }),
+      fetchJitoVoteAccounts(),
+    ]);
+
+    if (!marinadeRes.ok) {
+      console.warn(`[validator-geo] Marinade → HTTP ${marinadeRes.status}`);
+      return [];
+    }
+    const raw = await marinadeRes.json();
+    const data: Array<Record<string, unknown>> = Array.isArray(raw) ? raw : [];
+
+    if (data.length < 100) {
+      console.warn(`[validator-geo] Marinade returned only ${data.length} entries — skipping`);
+      return [];
+    }
+
+    console.log(`[validator-geo] ✅ Marinade: ${data.length} validators`);
+
+    const validators: SolanaValidator[] = [];
+    let geoHit = 0, geoFallback = 0, jitoCount = 0, fdCount = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i]!;
+
+      // Marinade uses dc_coordinates_lat/lon (NOT latitude/longitude)
+      const rawLat = typeof v.dc_coordinates_lat === 'number' ? v.dc_coordinates_lat : null;
+      const rawLon = typeof v.dc_coordinates_lon === 'number' ? v.dc_coordinates_lon : null;
+
+      let lat: number, lon: number, city: string, country: string;
+      let datacenter: string | undefined;
+
+      if (rawLat != null && rawLon != null && (rawLat !== 0 || rawLon !== 0)) {
+        const j = addJitter(rawLat, rawLon, i);
+        lat = j.lat; lon = j.lon;
+        city = String(v.dc_city || '');
+        country = String(v.dc_country_iso || '');
+        datacenter = v.dc_aso ? `${v.dc_aso} / ${v.dc_city}` : String(v.dc_city || '');
+        geoHit++;
+      } else {
+        // Fallback to IP prefix or deterministic DC
+        const ip = String(v.node_ip || '');
+        const ipLoc = ipToLocation(ip);
+        if (ipLoc) {
+          const j = addJitter(ipLoc.loc.lat, ipLoc.loc.lon, i);
+          lat = j.lat; lon = j.lon;
+          city = ipLoc.loc.city; country = ipLoc.loc.country;
+          datacenter = ipLoc.dc;
+        } else {
+          const pk = String(v.vote_account || v.identity || `${i}`);
+          let hash = 0;
+          for (let c = 0; c < pk.length; c++) hash = ((hash << 5) - hash + pk.charCodeAt(c)) | 0;
+          const dcIdx = Math.abs(hash) % DC_KEYS.length;
+          const dcKey = DC_KEYS[dcIdx]!;
+          const baseLoc = DC[dcKey]!;
+          const j = addJitter(baseLoc.lat, baseLoc.lon, i);
+          lat = j.lat; lon = j.lon;
+          city = baseLoc.city; country = baseLoc.country;
+          datacenter = dcKey;
+        }
+        geoFallback++;
+      }
+
+      // Client type detection
+      const version = String(v.version || 'unknown');
+      const vLower = version.toLowerCase();
+      const voteAccount = String(v.vote_account || '');
+      const isJito = jitoVotes.has(voteAccount);
+
+      // Firedancer has distinctive version numbers (0.x.y format, not 2.x or 3.x)
+      const isFiredancer = vLower.includes('firedancer') || vLower.includes('frankendancer')
+        || vLower.startsWith('fd') || /^0\.\d{2,}\./.test(version);
+
+      let clientType: SolanaValidator['clientType'];
+      if (isFiredancer) {
+        clientType = 'firedancer';
+        fdCount++;
+      } else if (isJito) {
+        clientType = 'jito';
+        jitoCount++;
+      } else {
+        clientType = 'solana-labs';
+      }
+
+      // Stake: activated_stake from Marinade is ALWAYS in lamports (1 SOL = 1e9 lamports)
+      const stakeRaw = Number(v.activated_stake || 0);
+      const activatedStake = Math.round(stakeRaw / 1e9);
+
+      // Commission from Marinade is commission_advertised (percentage, 0-100)
+      const commission = Number(v.commission_advertised ?? v.commission ?? 10);
+
+      // Skip rate: extract from epoch_stats if available
+      let skipRate = 0;
+      if (Array.isArray(v.epoch_stats) && v.epoch_stats.length > 0) {
+        const latest = v.epoch_stats[0] as Record<string, unknown>;
+        if (typeof latest?.skip_rate === 'number') skipRate = latest.skip_rate * 100;
+      }
+
+      validators.push({
+        pubkey: voteAccount || `unknown-${i}`,
+        name: (v.info_name || undefined) as string | undefined,
+        lat, lon, city, country, datacenter,
+        activatedStake,
+        commission,
+        lastVote: Date.now(),
+        delinquent: false, // Marinade only returns active validators
+        version,
+        clientType,
+        skipRate,
+        apy: Number(v.avg_apy ?? 0) * 100, // Marinade returns as decimal (0.06 = 6%)
+      });
+    }
+
+    console.log(`[validator-geo] Marinade mapped: ${geoHit} geo, ${geoFallback} fallback | Jito: ${jitoCount}, FD: ${fdCount}, Agave: ${validators.length - jitoCount - fdCount}`);
+    return validators;
+  } catch (err) {
+    console.warn('[validator-geo] Marinade API failed:', (err as Error).message);
+    return [];
+  }
+}
+
+// ── Fetch from Solana RPC: getVoteAccounts + getClusterNodes ────────────────
+async function fetchFromRPC(): Promise<SolanaValidator[]> {
+  console.log('[validator-geo] ── RPC Pipeline Start ──');
+
+  // Step 1: getVoteAccounts (with 45s timeout — this is a big response)
+  const voteResult = await rpcCall('getVoteAccounts', [{ commitment: 'confirmed' }], 45000) as {
+    current?: Array<Record<string, unknown>>;
+    delinquent?: Array<Record<string, unknown>>;
+  } | null;
+
+  if (!voteResult) {
+    console.error('[validator-geo] ❌ getVoteAccounts failed on ALL endpoints');
+    return [];
+  }
+
+  const current = voteResult.current || [];
+  const delinquent = voteResult.delinquent || [];
+  console.log(`[validator-geo] ✅ Vote accounts: ${current.length} current + ${delinquent.length} delinquent = ${current.length + delinquent.length} total`);
+
+  // Build lookup: nodePubkey → vote data
+  const voteMap = new Map<string, {
+    votePubkey: string;
+    nodePubkey: string;
+    activatedStake: number;
+    commission: number;
+    lastVote: number;
+    delinquent: boolean;
+  }>();
+
+  for (const v of current) {
+    const nk = String(v.nodePubkey);
+    voteMap.set(nk, {
+      votePubkey: String(v.votePubkey),
+      nodePubkey: nk,
+      activatedStake: Math.round(Number(v.activatedStake || 0) / 1e9),
+      commission: Number(v.commission ?? 10),
+      lastVote: Number(v.lastVote || 0),
+      delinquent: false,
+    });
+  }
+  for (const v of delinquent) {
+    const nk = String(v.nodePubkey);
+    voteMap.set(nk, {
+      votePubkey: String(v.votePubkey),
+      nodePubkey: nk,
+      activatedStake: Math.round(Number(v.activatedStake || 0) / 1e9),
+      commission: Number(v.commission ?? 10),
+      lastVote: Number(v.lastVote || 0),
+      delinquent: true,
+    });
+  }
+
+  // Step 2: getClusterNodes (25s timeout — lighter than getVoteAccounts)
+  const clusterNodes = await rpcCall('getClusterNodes', [], 25000) as Array<{
+    pubkey: string;
+    gossip?: string | null;
+    tpu?: string | null;
+    version?: string | null;
+  }> | null;
+
+  const nodeMap = new Map<string, { ip: string; version: string }>();
+  if (clusterNodes && Array.isArray(clusterNodes)) {
+    console.log(`[validator-geo] ✅ Cluster nodes: ${clusterNodes.length}`);
+    for (const node of clusterNodes) {
+      const gossip = node.gossip || node.tpu || '';
+      const ip = gossip.split(':')[0] || '';
+      if (ip && ip !== '0.0.0.0') {
+        nodeMap.set(node.pubkey, {
+          ip,
+          version: node.version || 'unknown',
+        });
+      }
+    }
+    console.log(`[validator-geo] Extracted ${nodeMap.size} node IPs`);
+  } else {
+    console.warn('[validator-geo] ⚠ getClusterNodes failed — using version=unknown for all');
+  }
+
+  // Step 3: Build validators with IP prefix → datacenter mapping
+  const validators: SolanaValidator[] = [];
+  let ipMatched = 0;
+  let dcFallback = 0;
+
+  for (const [nodePubkey, vote] of voteMap) {
+    const nodeInfo = nodeMap.get(nodePubkey);
+    const ip = nodeInfo?.ip || '';
+    const version = nodeInfo?.version || 'unknown';
+    const clientType = detectClientType(version);
+
+    let lat: number;
+    let lon: number;
+    let city: string;
+    let country: string;
+    let datacenter: string | undefined;
+
+    const ipLoc = ipToLocation(ip);
+    if (ipLoc) {
+      const j = addJitter(ipLoc.loc.lat, ipLoc.loc.lon, validators.length);
+      lat = j.lat;
+      lon = j.lon;
+      city = ipLoc.loc.city;
+      country = ipLoc.loc.country;
+      datacenter = ipLoc.dc;
+      ipMatched++;
+    } else {
+      // Deterministic fallback based on pubkey hash
+      let hash = 0;
+      for (let c = 0; c < nodePubkey.length; c++) {
+        hash = ((hash << 5) - hash + nodePubkey.charCodeAt(c)) | 0;
+      }
+      const dcIdx = Math.abs(hash) % DC_KEYS.length;
+      const dcKey = DC_KEYS[dcIdx]!;
+      const baseLoc = DC[dcKey]!;
+      const j = addJitter(baseLoc.lat, baseLoc.lon, validators.length);
+      lat = j.lat;
+      lon = j.lon;
+      city = baseLoc.city;
+      country = baseLoc.country;
+      datacenter = dcKey;
+      dcFallback++;
+    }
+
+    validators.push({
+      pubkey: vote.votePubkey,
+      name: undefined,
+      lat, lon, city, country, datacenter,
+      activatedStake: vote.activatedStake,
+      commission: vote.commission,
+      lastVote: vote.lastVote,
+      delinquent: vote.delinquent,
+      version, clientType,
+      skipRate: 0,
+      apy: 0,
+    });
+  }
+
+  console.log(`[validator-geo] ✅ Built ${validators.length} validators (${ipMatched} IP-matched, ${dcFallback} DC-fallback)`);
+  return validators;
+}
+
+// ── Fetch from validators.app (requires API token) ──────────────────────────
+async function fetchFromValidatorsApp(): Promise<SolanaValidator[]> {
+  if (!VALIDATORS_APP_TOKEN) {
+    console.log('[validator-geo] No validators.app API token configured, skipping');
+    return [];
+  }
+
+  try {
+    const res = await fetch(VALIDATORS_APP_API, {
+      signal: AbortSignal.timeout(12000),
+      headers: { 'Accept': 'application/json', 'Token': VALIDATORS_APP_TOKEN },
+    });
+    if (!res.ok) throw new Error(`validators.app HTTP ${res.status}`);
+    const data = await res.json();
+
+    if (!Array.isArray(data) || data.length < 100) {
+      throw new Error(`validators.app returned only ${Array.isArray(data) ? data.length : 0} items`);
+    }
+
+    console.log(`[validator-geo] ✅ validators.app: ${data.length} validators`);
+
+    return data.map((v: Record<string, unknown>, i: number) => {
+      const dc = (v.data_center_key || v.datacenter || '') as string;
+      const city = (v.data_center_city || v.city || '') as string;
+      const country = (v.data_center_country || v.country || '') as string;
+      const loc = resolveLocation(dc, city, country);
+      const jittered = loc ? addJitter(loc.lat, loc.lon, i) : null;
+
+      return {
+        pubkey: (v.account || v.vote_account || v.pubkey || `unknown-${i}`) as string,
+        name: (v.name || v.moniker || undefined) as string | undefined,
+        lat: jittered?.lat ?? (v.latitude as number | undefined),
+        lon: jittered?.lon ?? (v.longitude as number | undefined),
+        city: loc?.city || city,
+        country: loc?.country || country,
+        datacenter: dc || undefined,
+        activatedStake: Number(v.active_stake || v.activated_stake || 0),
+        commission: Number(v.commission ?? 10),
+        lastVote: Date.now(),
+        delinquent: Boolean(v.delinquent),
+        version: (v.software_version || v.version || 'unknown') as string,
+        clientType: detectClientType((v.software_version || v.version || '') as string),
+        skipRate: Number(v.skip_rate ?? v.skipped_slot_percent ?? 0),
+        apy: Number(v.apy_estimate ?? v.apy ?? 0),
+      };
+    });
+  } catch (err) {
+    console.warn('[validator-geo] validators.app failed:', err);
+    return [];
+  }
+}
+
+// ── Cluster validators by proximity ─────────────────────────────────────────
+function clusterValidators(validators: SolanaValidator[]): ValidatorCluster[] {
+  const clusterMap = new Map<string, SolanaValidator[]>();
+
+  for (const v of validators) {
+    if (v.lat == null || v.lon == null) continue;
+    const latKey = Math.round(v.lat! / 2) * 2;
+    const lonKey = Math.round(v.lon! / 2) * 2;
+    const key = `${latKey},${lonKey}`;
+    if (!clusterMap.has(key)) clusterMap.set(key, []);
+    clusterMap.get(key)!.push(v);
+  }
+
+  const totalStakeGlobal = validators.reduce((s, v) => s + v.activatedStake, 0);
+  const clusters: ValidatorCluster[] = [];
+
+  for (const [clusterKey, cvs] of clusterMap) {
+    const avgLat = cvs.reduce((s, v) => s + (v.lat || 0), 0) / cvs.length;
+    const avgLon = cvs.reduce((s, v) => s + (v.lon || 0), 0) / cvs.length;
+    const totalStake = cvs.reduce((s, v) => s + v.activatedStake, 0);
+
+    const countries = cvs.map(v => v.country).filter((c): c is string => Boolean(c));
+    const dominantCountry = arrMode(countries) || 'Unknown';
+    const datacenters = cvs.map(v => v.datacenter).filter((d): d is string => Boolean(d));
+    const dominantDC = arrMode(datacenters) || undefined;
+
+    clusters.push({
+      id: clusterKey,
+      lat: avgLat, lon: avgLon,
+      count: cvs.length, totalStake,
+      validators: cvs,
+      datacenter: dominantDC,
+      country: dominantCountry,
+      stakeConcentration: totalStakeGlobal > 0 ? totalStake / totalStakeGlobal : 0,
+    });
+  }
+
+  return clusters.sort((a, b) => b.totalStake - a.totalStake);
+}
+
+function arrMode(arr: string[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (const x of arr) counts.set(x, (counts.get(x) || 0) + 1);
+  let best: string | undefined;
+  let bestC = 0;
+  for (const [k, c] of counts) {
+    if (c > bestC) { best = k; bestC = c; }
+  }
+  return best;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PUBLIC API
+// ══════════════════════════════════════════════════════════════════════════════
+
+export async function fetchValidatorGeoData(): Promise<{
+  validators: SolanaValidator[];
+  clusters: ValidatorCluster[];
+}> {
+  const now = Date.now();
+  if (cachedValidators && cachedClusters && now - lastFetch < CACHE_TTL) {
+    console.log(`[validator-geo] Cache hit (${cachedValidators.length} validators)`);
+    return { validators: cachedValidators, clusters: cachedClusters };
+  }
+
+  console.log('[validator-geo] ════════════════════════════════════════');
+  console.log('[validator-geo] Starting validator data fetch...');
+
+  // Priority: Marinade (best data: Jito detection + real geo + names) → validators.app → RPC
+  let validators = await fetchFromMarinade();
+  if (validators.length < 50) {
+    console.log('[validator-geo] Marinade unavailable, trying validators.app...');
+    validators = await fetchFromValidatorsApp();
+  }
+  if (validators.length < 50) {
+    console.log('[validator-geo] Falling back to direct RPC...');
+    validators = await fetchFromRPC();
+  }
+
+  if (validators.length === 0) {
+    console.error('[validator-geo] ❌ All data sources failed!');
+    return { validators: [], clusters: [] };
+  }
+
+  const geoValidators = validators.filter(v => v.lat != null && v.lon != null);
+  const clusters = clusterValidators(geoValidators);
+
+  cachedValidators = geoValidators;
+  cachedClusters = clusters;
+  lastFetch = now;
+
+  const totalStake = geoValidators.reduce((s, v) => s + v.activatedStake, 0);
+  const delinqCount = geoValidators.filter(v => v.delinquent).length;
+  const countryCount = new Set(geoValidators.map(v => v.country).filter(Boolean)).size;
+
+  console.log(
+    `[validator-geo] ✅ DONE: ${geoValidators.length} validators | ${clusters.length} clusters | ` +
+    `${countryCount} countries | ${delinqCount} delinquent | ${(totalStake / 1e6).toFixed(1)}M SOL`
+  );
+  console.log('[validator-geo] ════════════════════════════════════════');
+
+  return { validators: geoValidators, clusters };
+}
+
+export function computeNakamoto(validators: SolanaValidator[]): number {
+  const stakes = validators.filter(v => !v.delinquent).map(v => v.activatedStake).sort((a, b) => b - a);
+  const totalStake = stakes.reduce((s, v) => s + v, 0);
+  if (totalStake === 0) return 0;
+  const threshold = totalStake / 3;
+  let cum = 0;
+  for (let i = 0; i < stakes.length; i++) {
+    cum += stakes[i]!;
+    if (cum >= threshold) return i + 1;
+  }
+  return stakes.length;
+}
+
+export function getDatacenterConcentration(clusters: ValidatorCluster[]): {
+  dc: string; country: string; count: number; stakePercent: number;
+}[] {
+  return clusters
+    .filter(c => c.count >= 3)
+    .map(c => ({
+      dc: c.datacenter || c.country,
+      country: c.country,
+      count: c.count,
+      stakePercent: Math.round(c.stakeConcentration * 10000) / 100,
+    }))
+    .sort((a, b) => b.stakePercent - a.stakePercent)
+    .slice(0, 20);
+}
+
+export function getValidatorStats(validators: SolanaValidator[]): {
+  total: number; active: number; delinquent: number; nakamoto: number;
+  totalStakeSOL: number; avgCommission: number;
+  clientBreakdown: Record<string, number>;
+  countryBreakdown: Array<{ country: string; count: number; stakePercent: number }>;
+  versionBreakdown: Array<{ version: string; count: number }>;
+  avgSkipRate: number; top10StakePct: number;
+} {
+  const active = validators.filter(v => !v.delinquent);
+  const totalStake = validators.reduce((s, v) => s + v.activatedStake, 0);
+  const nakamoto = computeNakamoto(validators);
+
+  const clients: Record<string, number> = {};
+  for (const v of validators) {
+    const ct = v.clientType || 'unknown';
+    clients[ct] = (clients[ct] || 0) + 1;
+  }
+
+  const countryMap = new Map<string, { count: number; stake: number }>();
+  for (const v of validators) {
+    const c = v.country || 'Unknown';
+    const e = countryMap.get(c) || { count: 0, stake: 0 };
+    e.count++; e.stake += v.activatedStake;
+    countryMap.set(c, e);
+  }
+  const countryBreakdown = [...countryMap.entries()]
+    .map(([country, { count, stake }]) => ({
+      country, count,
+      stakePercent: totalStake > 0 ? Math.round(stake / totalStake * 10000) / 100 : 0,
+    }))
+    .sort((a, b) => b.count - a.count).slice(0, 10);
+
+  const versionMap = new Map<string, number>();
+  for (const v of validators) {
+    const ver = v.version || 'unknown';
+    versionMap.set(ver, (versionMap.get(ver) || 0) + 1);
+  }
+  const versionBreakdown = [...versionMap.entries()]
+    .map(([version, count]) => ({ version, count }))
+    .sort((a, b) => b.count - a.count).slice(0, 5);
+
+  const avgCommission = active.length > 0
+    ? Math.round(active.reduce((s, v) => s + v.commission, 0) / active.length * 10) / 10 : 0;
+  const withSkip = active.filter(v => (v.skipRate || 0) > 0);
+  const avgSkipRate = withSkip.length > 0
+    ? Math.round(withSkip.reduce((s, v) => s + (v.skipRate || 0), 0) / withSkip.length * 100) / 100 : 0;
+
+  // Top 10 validators stake concentration (more informative than superminority)
+  const sorted = active.map(v => v.activatedStake).sort((a, b) => b - a);
+  const activeStake = sorted.reduce((s, v) => s + v, 0);
+  const top10Stake = sorted.slice(0, 10).reduce((s, v) => s + v, 0);
+  const top10StakePct = activeStake > 0 ? Math.round(top10Stake / activeStake * 1000) / 10 : 0;
+
+  return {
+    total: validators.length, active: active.length,
+    delinquent: validators.length - active.length,
+    nakamoto, totalStakeSOL: totalStake, avgCommission,
+    clientBreakdown: clients, countryBreakdown, versionBreakdown,
+    avgSkipRate, top10StakePct,
+  };
+}

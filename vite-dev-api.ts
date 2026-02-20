@@ -10,6 +10,14 @@
  */
 
 import type { Plugin } from 'vite';
+import { loadEnv } from 'vite';
+
+// ── Load .env.local vars early so they're available in all handlers ──
+// Vite's `process.env` doesn't always populate VITE_* on server restart.
+const _env = loadEnv('development', process.cwd(), '');
+function getEnv(key: string): string {
+  return process.env[key] || _env[key] || '';
+}
 
 // ───────────────────────── Allowed RSS Domains ─────────────────────────
 const ALLOWED_DOMAINS = new Set([
@@ -366,6 +374,507 @@ async function handlePolymarket(req: any, res: any) {
   }
 }
 
+// ───────────────────────── Marinade Validators Proxy ─────────────────────────
+// ───────────────────────── Validators.app Proxy ─────────────────────────
+// Requires API token. Returns ALL validators with geo, Jito flag, client type, scores.
+// Rate limit: 20 requests per 5 minutes — cache aggressively!
+let validatorsAppCache: { data: any; ts: number } | null = null;
+const VALIDATORS_APP_CACHE_TTL = 300_000; // 5 min
+const VALIDATORS_APP_TOKEN = getEnv('VITE_VALIDATORS_APP_TOKEN') || 'WPAQGS3PbDtgjtkPiZXW6AEG';
+
+async function handleValidatorsApp(_req: any, res: any) {
+  // Return cached data if fresh
+  if (validatorsAppCache && Date.now() - validatorsAppCache.ts < VALIDATORS_APP_CACHE_TTL) {
+    console.log(`[validators-app] Cache hit (${validatorsAppCache.data.length} validators)`);
+    return json(res, validatorsAppCache.data);
+  }
+
+  const url = 'https://www.validators.app/api/v1/validators/mainnet.json?limit=9999&active_only=false';
+  try {
+    console.log('[validators-app] Fetching from validators.app...');
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        'Accept': 'application/json',
+        'Token': VALIDATORS_APP_TOKEN,
+      },
+    }, 45000);
+
+    if (!response.ok) {
+      console.error(`[validators-app] HTTP ${response.status}`);
+      return json(res, [], response.status === 429 ? 429 : 502);
+    }
+
+    const data = await response.json();
+    if (!Array.isArray(data) || data.length < 100) {
+      console.error(`[validators-app] Only ${Array.isArray(data) ? data.length : 0} validators`);
+      return json(res, [], 502);
+    }
+
+    console.log(`[validators-app] ✅ ${data.length} validators (${data.filter((v: any) => v.jito).length} Jito, ${data.filter((v: any) => !v.delinquent).length} active)`);
+    validatorsAppCache = { data, ts: Date.now() };
+    return json(res, data);
+  } catch (e: any) {
+    console.error(`[validators-app] Failed: ${e.message}`);
+    // Return stale cache if available
+    if (validatorsAppCache) {
+      console.log(`[validators-app] Returning stale cache (${validatorsAppCache.data.length} validators)`);
+      return json(res, validatorsAppCache.data);
+    }
+    return json(res, [], 502);
+  }
+}
+
+// ───────────────────────── Helium Hotspot Proxy ─────────────────────────
+// Fetches real Helium IoT & Mobile hotspot locations from entities.nft.helium.io
+// Paginates through multiple pages to get 50K+ real coordinates.
+// Cache for 10 minutes since hotspot data changes slowly.
+let heliumCache: { data: any; ts: number } | null = null;
+const HELIUM_CACHE_TTL = 600_000; // 10 min
+const HELIUM_IOT_PAGES = 5;       // 5 pages × 10K = ~50K IoT hotspots
+const HELIUM_MOBILE_PAGES = 3;    // 3 pages × 10K = ~30K Mobile hotspots
+
+async function fetchHeliumPages(subnetwork: string, maxPages: number): Promise<{ items: any[]; total: number }> {
+  const allItems: any[] = [];
+  let cursor: string | null = null;
+  let hasMore = true;
+
+  for (let page = 0; page < maxPages && hasMore; page++) {
+    const url = cursor
+      ? `https://entities.nft.helium.io/v2/hotspots?subnetwork=${subnetwork}&limit=10000&cursor=${encodeURIComponent(cursor)}`
+      : `https://entities.nft.helium.io/v2/hotspots?subnetwork=${subnetwork}&limit=10000`;
+
+    try {
+      const r = await fetchWithTimeout(url, {}, 30000);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      const items = d.items || [];
+      allItems.push(...items);
+      cursor = d.cursor || null;
+      hasMore = !!cursor;
+      console.log(`[helium-proxy] ${subnetwork} page ${page + 1}: ${items.length} items (total so far: ${allItems.length})`);
+    } catch (e: any) {
+      console.warn(`[helium-proxy] ${subnetwork} page ${page + 1} failed: ${e.message}`);
+      break;
+    }
+  }
+
+  return { items: allItems, total: allItems.length };
+}
+
+async function handleHeliumHotspots(_req: any, res: any) {
+  if (heliumCache && Date.now() - heliumCache.ts < HELIUM_CACHE_TTL) {
+    console.log(`[helium-proxy] Cache hit (${heliumCache.data.iot?.length || 0} IoT, ${heliumCache.data.mobile?.length || 0} Mobile)`);
+    return json(res, heliumCache.data);
+  }
+
+  console.log('[helium-proxy] Fetching real Helium hotspot locations (paginated)...');
+
+  const result: { iot: any[]; mobile: any[]; totalIot: number; totalMobile: number } = {
+    iot: [],
+    mobile: [],
+    totalIot: 0,
+    totalMobile: 0,
+  };
+
+  // Fetch IoT and Mobile hotspots in parallel (multiple pages each)
+  const [iotRes, mobileRes] = await Promise.allSettled([
+    fetchHeliumPages('iot', HELIUM_IOT_PAGES),
+    fetchHeliumPages('mobile', HELIUM_MOBILE_PAGES),
+  ]);
+
+  if (iotRes.status === 'fulfilled') {
+    const items = iotRes.value.items;
+    result.iot = items.filter((h: any) => h.lat && h.long).map((h: any) => ({
+      lat: h.lat,
+      lon: h.long,
+      active: h.is_active,
+      key: h.entity_key_str?.slice(0, 12),
+    }));
+    result.totalIot = 400000; // known total
+    console.log(`[helium-proxy] ✅ IoT: ${result.iot.length} hotspots with geo (from ${HELIUM_IOT_PAGES} pages)`);
+  } else {
+    console.warn(`[helium-proxy] IoT fetch failed: ${iotRes.reason}`);
+  }
+
+  if (mobileRes.status === 'fulfilled') {
+    const items = mobileRes.value.items;
+    result.mobile = items.filter((h: any) => h.lat && h.long).map((h: any) => ({
+      lat: h.lat,
+      lon: h.long,
+      active: h.is_active,
+      key: h.entity_key_str?.slice(0, 12),
+    }));
+    result.totalMobile = 50000; // known total
+    console.log(`[helium-proxy] ✅ Mobile: ${result.mobile.length} hotspots with geo (from ${HELIUM_MOBILE_PAGES} pages)`);
+  } else {
+    console.warn(`[helium-proxy] Mobile fetch failed: ${mobileRes.reason}`);
+  }
+
+  if (result.iot.length > 0 || result.mobile.length > 0) {
+    heliumCache = { data: result, ts: Date.now() };
+  }
+
+  return json(res, result);
+}
+
+// ───────────────────────── DeFi Llama Proxy ─────────────────────────
+// Proxies DeFi Llama /protocols endpoint to avoid CORS issues.
+// Returns top 50 Solana protocols with TVL, category, 24h/7d change.
+let defiLlamaCache: { data: any; ts: number } | null = null;
+const DEFI_LLAMA_CACHE_TTL = 300_000; // 5 min
+
+async function handleDefiData(_req: any, res: any) {
+  if (defiLlamaCache && Date.now() - defiLlamaCache.ts < DEFI_LLAMA_CACHE_TTL) {
+    console.log(`[defi-llama] Cache hit (${defiLlamaCache.data.protocols.length} protocols)`);
+    return json(res, defiLlamaCache.data);
+  }
+
+  try {
+    console.log('[defi-llama] Fetching from api.llama.fi/protocols...');
+    const response = await fetchWithTimeout('https://api.llama.fi/protocols', {}, 15000);
+    if (!response.ok) {
+      console.error(`[defi-llama] HTTP ${response.status}`);
+      if (defiLlamaCache) return json(res, defiLlamaCache.data);
+      return json(res, { protocols: [], totalTvl: 0, categories: {} }, 502);
+    }
+
+    const allProtocols: any[] = await response.json();
+    const solanaProtocols = allProtocols
+      .filter((p: any) => p.chains && (p.chains.includes('Solana') || p.chains.includes('solana')))
+      .map((p: any) => ({
+        name: p.name,
+        slug: p.slug || '',
+        tvl: p.tvl || 0,
+        change24h: p.change_1d || 0,
+        change7d: p.change_7d || 0,
+        category: p.category || 'Other',
+        logo: p.logo || '',
+        url: p.url || '',
+      }))
+      .sort((a: any, b: any) => b.tvl - a.tvl)
+      .slice(0, 50);
+
+    const totalTvl = solanaProtocols.reduce((s: number, p: any) => s + p.tvl, 0);
+
+    // Group by category
+    const categories: Record<string, { tvl: number; count: number; protocols: string[] }> = {};
+    for (const p of solanaProtocols) {
+      if (!categories[p.category]) categories[p.category] = { tvl: 0, count: 0, protocols: [] };
+      categories[p.category].tvl += p.tvl;
+      categories[p.category].count++;
+      categories[p.category].protocols.push(p.name);
+    }
+
+    const result = { protocols: solanaProtocols, totalTvl, categories, timestamp: Date.now() };
+    console.log(`[defi-llama] ✅ ${solanaProtocols.length} Solana protocols, $${(totalTvl / 1e9).toFixed(2)}B TVL`);
+    defiLlamaCache = { data: result, ts: Date.now() };
+    return json(res, result);
+  } catch (e: any) {
+    console.error(`[defi-llama] Failed: ${e.message}`);
+    if (defiLlamaCache) return json(res, defiLlamaCache.data);
+    return json(res, { protocols: [], totalTvl: 0, categories: {} }, 502);
+  }
+}
+
+// ───────────────────────── DexScreener Token Proxy ─────────────────────────
+// Proxies DexScreener token lookups server-side to avoid browser CORS / anti-bot issues.
+const dexscreenerCache = new Map<string, { data: any; ts: number }>();
+const DEXSCREENER_CACHE_TTL = 60_000; // 1 min
+
+async function handleDexscreenerToken(req: any, res: any) {
+  const urlObj = new URL(req.url || '', 'http://localhost');
+  const mint = urlObj.searchParams.get('mint')?.trim();
+  if (!mint || mint.length < 30) {
+    return json(res, { error: 'Missing or invalid mint address' }, 400);
+  }
+
+  // Cache check
+  const cached = dexscreenerCache.get(mint);
+  if (cached && Date.now() - cached.ts < DEXSCREENER_CACHE_TTL) {
+    console.log(`[dexscreener-proxy] Cache hit for ${mint.slice(0, 8)}...`);
+    return json(res, cached.data);
+  }
+
+  try {
+    // Try new endpoint first (chain-specific, cleaner)
+    let pairs: any[] = [];
+    try {
+      const r1 = await fetchWithTimeout(`https://api.dexscreener.com/tokens/v1/solana/${mint}`, {}, 10000);
+      if (r1.ok) {
+        const d1 = await r1.json();
+        if (Array.isArray(d1) && d1.length > 0) {
+          pairs = d1;
+          console.log(`[dexscreener-proxy] v1 API: ${pairs.length} pairs for ${mint.slice(0, 8)}...`);
+        }
+      }
+    } catch (_e) { /* fall through */ }
+
+    // Fallback to legacy endpoint
+    if (pairs.length === 0) {
+      const r2 = await fetchWithTimeout(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {}, 10000);
+      if (r2.ok) {
+        const d2 = await r2.json();
+        if (d2.pairs && d2.pairs.length > 0) {
+          // Filter to Solana pairs only
+          pairs = d2.pairs.filter((p: any) => p.chainId === 'solana');
+          if (pairs.length === 0) pairs = d2.pairs; // fallback: use all
+          console.log(`[dexscreener-proxy] legacy API: ${pairs.length} pairs for ${mint.slice(0, 8)}...`);
+        }
+      }
+    }
+
+    if (pairs.length === 0) {
+      console.warn(`[dexscreener-proxy] No pairs found for ${mint.slice(0, 8)}...`);
+      return json(res, { pairs: [] });
+    }
+
+    // Sort by liquidity descending, return best pair + metadata
+    pairs.sort((a: any, b: any) => {
+      const liqA = typeof a.liquidity === 'number' ? a.liquidity : (a.liquidity?.usd || 0);
+      const liqB = typeof b.liquidity === 'number' ? b.liquidity : (b.liquidity?.usd || 0);
+      return liqB - liqA;
+    });
+
+    const result = { pairs };
+    dexscreenerCache.set(mint, { data: result, ts: Date.now() });
+    console.log(`[dexscreener-proxy] ✅ ${pairs.length} pairs, top liq: $${(pairs[0].liquidity?.usd || pairs[0].liquidity || 0).toLocaleString()}`);
+    return json(res, result);
+  } catch (e: any) {
+    console.error(`[dexscreener-proxy] Error for ${mint.slice(0, 8)}...: ${e.message}`);
+    return json(res, { pairs: [], error: e.message }, 502);
+  }
+}
+
+// ───────────────────────── Solana RPC Proxy ─────────────────────────
+// Proxies getVoteAccounts/getClusterNodes from server-side to avoid
+// browser CORS and rate-limiting on public Solana RPC endpoints.
+const SOLANA_RPC_ENDPOINTS = [
+  getEnv('VITE_HELIUS_RPC_URL'),
+  'https://api.mainnet-beta.solana.com',
+  'https://rpc.ankr.com/solana',
+].filter(Boolean) as string[];
+
+async function handleSolanaRpcProxy(req: any, res: any) {
+  // Read request body
+  const body: Buffer[] = [];
+  for await (const chunk of req) body.push(chunk);
+  const bodyStr = Buffer.concat(body).toString();
+
+  let parsed: { method?: string; params?: unknown[]; jsonrpc?: string; id?: number };
+  try {
+    parsed = JSON.parse(bodyStr);
+  } catch {
+    return json(res, { error: 'Invalid JSON' }, 400);
+  }
+
+  const method = parsed.method || '';
+  const allowedMethods = ['getVoteAccounts', 'getClusterNodes', 'getEpochInfo', 'getVersion'];
+  if (!allowedMethods.includes(method)) {
+    return json(res, { error: `Method not allowed: ${method}` }, 403);
+  }
+
+  console.log(`[solana-rpc-proxy] ${method} → trying ${SOLANA_RPC_ENDPOINTS.length} endpoints`);
+
+  for (const endpoint of SOLANA_RPC_ENDPOINTS) {
+    try {
+      const label = endpoint.replace(/\/v2\/.*/, '/v2/***').slice(0, 60);
+      console.log(`[solana-rpc-proxy] ${method} → ${label}`);
+
+      const ctrl = new AbortController();
+      const timeout = method === 'getVoteAccounts' ? 60000 : 30000;
+      const t = setTimeout(() => ctrl.abort(), timeout);
+
+      const rpcRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: parsed.id || 1,
+          method,
+          params: parsed.params || [],
+        }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(t);
+
+      if (!rpcRes.ok) {
+        console.warn(`[solana-rpc-proxy] ${method} → HTTP ${rpcRes.status}`);
+        continue;
+      }
+
+      const data = await rpcRes.json();
+      if (data.error) {
+        console.warn(`[solana-rpc-proxy] ${method} → RPC error:`, data.error.message || data.error);
+        continue;
+      }
+
+      if (data.result !== undefined) {
+        console.log(`[solana-rpc-proxy] ${method} → ✅ success`);
+        return json(res, data);
+      }
+    } catch (e: any) {
+      console.warn(`[solana-rpc-proxy] ${method} → ${e.name === 'AbortError' ? 'timeout' : e.message}`);
+      continue;
+    }
+  }
+
+  console.error(`[solana-rpc-proxy] ${method} → ❌ all endpoints failed`);
+  return json(res, { jsonrpc: '2.0', id: parsed.id || 1, error: { code: -32000, message: 'All RPC endpoints failed' } }, 502);
+}
+
+// ───────────────────────── Twitter CA Search (SocialData) ──────────
+
+async function handleTwitterCA(req: any, res: any): Promise<void> {
+  const parsed = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+  const mint = parsed.searchParams.get('mint');
+
+  if (!mint) {
+    return json(res, { error: 'Missing mint parameter' }, 400);
+  }
+
+  const apiKey = getEnv('SOCIALDATA_API_KEY');
+  if (!apiKey) {
+    console.warn('[twitter-ca] SOCIALDATA_API_KEY not set');
+    return json(res, { error: 'Twitter search not configured — SOCIALDATA_API_KEY missing' }, 503);
+  }
+
+  try {
+    const query = encodeURIComponent(mint);
+    const searchRes = await fetchWithTimeout(
+      `https://api.socialdata.tools/twitter/search?query=${query}&type=Latest`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: 'application/json',
+        },
+      },
+      15_000,
+    );
+
+    if (!searchRes.ok) {
+      const errText = await searchRes.text();
+      console.error('[twitter-ca] SocialData search failed:', searchRes.status, errText);
+      if (searchRes.status === 402) {
+        return json(res, { error: 'SocialData credits exhausted' }, 503);
+      }
+      return json(res, { error: 'Twitter search failed' }, 502);
+    }
+
+    const searchData = await searchRes.json() as any;
+    const rawTweets = (searchData.tweets || []) as any[];
+
+    const tweets = rawTweets.slice(0, 20).map((t: any) => ({
+      id: t.id_str || String(t.id || ''),
+      text: (t.full_text || t.text || '').slice(0, 500),
+      author: t.user?.name || 'Unknown',
+      handle: t.user?.screen_name || '',
+      avatar: t.user?.profile_image_url_https || '',
+      followers: t.user?.followers_count || 0,
+      likes: t.favorite_count || 0,
+      retweets: t.retweet_count || 0,
+      replies: t.reply_count || 0,
+      views: t.views_count || 0,
+      date: t.tweet_created_at || t.created_at || '',
+      url: t.user?.screen_name
+        ? `https://x.com/${t.user.screen_name}/status/${t.id_str || t.id}`
+        : '',
+    }));
+
+    console.log(`[twitter-ca] ✅ ${tweets.length} tweets for ${mint.slice(0, 8)}...`);
+    return json(res, { status: 'ready', tweets });
+  } catch (err: any) {
+    console.error('[twitter-ca] Error:', err.message);
+    return json(res, { error: 'Internal error' }, 500);
+  }
+}
+
+// ───────────────────────── Whale Transactions Proxy ─────────────────────────
+// Proxies Helius Enhanced TX API server-side to avoid CORS + provide logging
+const whaleCache = new Map<string, { data: any; ts: number }>();
+const WHALE_CACHE_TTL = 15_000; // 15s cache per wallet
+
+async function handleWhaleTransactions(req: any, res: any) {
+  const qs = new URL(req.url!, `http://${req.headers.host}`).searchParams;
+  const wallet = qs.get('wallet');
+  if (!wallet) return json(res, { error: 'wallet param required' }, 400);
+
+  // Check cache
+  const cached = whaleCache.get(wallet);
+  if (cached && Date.now() - cached.ts < WHALE_CACHE_TTL) {
+    return json(res, cached.data);
+  }
+
+  const HELIUS_KEY = (() => {
+    const rpc = getEnv('VITE_HELIUS_RPC_URL');
+    if (!rpc) return null;
+    try { return new URL(rpc).searchParams.get('api-key'); } catch { return null; }
+  })();
+
+  // Strategy 1: Helius Enhanced Transactions API
+  if (HELIUS_KEY) {
+    try {
+      const heliusUrl = `https://api.helius.xyz/v0/addresses/${wallet}/transactions?api-key=${HELIUS_KEY}&limit=100`;
+      const r = await fetchWithTimeout(heliusUrl, {}, 8000);
+      if (r.ok) {
+        const txs = await r.json();
+        console.log(`[whale-proxy] Helius ✅ ${wallet.slice(0, 8)}… → ${txs.length} txs`);
+        const result = { source: 'helius', transactions: txs };
+        whaleCache.set(wallet, { data: result, ts: Date.now() });
+        return json(res, result);
+      }
+      console.warn(`[whale-proxy] Helius ${r.status} for ${wallet.slice(0, 8)}...`);
+    } catch (e: any) {
+      console.warn(`[whale-proxy] Helius error for ${wallet.slice(0, 8)}...: ${e.message}`);
+    }
+  }
+
+  // Strategy 2: Public RPC fallback
+  const rpcUrl = getEnv('VITE_HELIUS_RPC_URL') || 'https://api.mainnet-beta.solana.com';
+  try {
+    // Get recent signatures
+    const sigRes = await fetchWithTimeout(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1,
+        method: 'getSignaturesForAddress',
+        params: [wallet, { limit: 10, commitment: 'confirmed' }],
+      }),
+    }, 8000);
+    const sigJson = await sigRes.json();
+    const sigs = sigJson.result || [];
+
+    // Fetch full transaction details
+    const transactions: any[] = [];
+    for (const sig of sigs.slice(0, 5)) {
+      if (sig.err) continue;
+      try {
+        const txRes = await fetchWithTimeout(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'getTransaction',
+            params: [sig.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }],
+          }),
+        }, 8000);
+        const txJson = await txRes.json();
+        if (txJson.result) {
+          transactions.push({ ...txJson.result, signature: sig.signature, blockTime: txJson.result.blockTime || sig.blockTime });
+        }
+      } catch { /* skip */ }
+    }
+
+    console.log(`[whale-proxy] RPC ✅ ${wallet.slice(0, 8)}... → ${transactions.length} txs`);
+    const result = { source: 'rpc', transactions, signatures: sigs };
+    whaleCache.set(wallet, { data: result, ts: Date.now() });
+    return json(res, result);
+  } catch (e: any) {
+    console.error(`[whale-proxy] RPC error for ${wallet.slice(0, 8)}...: ${e.message}`);
+    return json(res, { error: 'Failed to fetch whale data', source: 'none', transactions: [] }, 502);
+  }
+}
+
 // ───────────────────────── Plugin export ─────────────────────────
 export function devApiPlugin(): Plugin {
   return {
@@ -389,6 +898,27 @@ export function devApiPlugin(): Plugin {
           }
           if (url.startsWith('/api/polymarket')) {
             return await handlePolymarket(req, res);
+          }
+          if (url.startsWith('/api/validators-app')) {
+            return await handleValidatorsApp(req, res);
+          }
+          if (url.startsWith('/api/helium-hotspots')) {
+            return await handleHeliumHotspots(req, res);
+          }
+          if (url.startsWith('/api/defi-data')) {
+            return await handleDefiData(req, res);
+          }
+          if (url.startsWith('/api/dexscreener-token')) {
+            return await handleDexscreenerToken(req, res);
+          }
+          if (url.startsWith('/api/solana-rpc-proxy')) {
+            return await handleSolanaRpcProxy(req, res);
+          }
+          if (url.startsWith('/api/twitter-ca')) {
+            return await handleTwitterCA(req, res);
+          }
+          if (url.startsWith('/api/whale-transactions')) {
+            return await handleWhaleTransactions(req, res);
           }
         } catch (e: any) {
           console.error(`[dev-api] Error handling ${url}:`, e.message);

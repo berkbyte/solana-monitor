@@ -1,14 +1,21 @@
 // Token Analyze Panel — paste a CA, get deep token analysis with risk + signal
+// Now with tabs: Token Analyze + X Sentiment
 import { Panel } from './Panel';
 import { escapeHtml } from '../utils/sanitize';
 import type { TokenAnalysis, RiskFactor } from '../services/token-analyze';
-import type { CATweetResult } from '../services/twitter-ca-search';
+import type { SentimentReport, TweetSentiment } from '../services/x-sentiment';
+
+type TabId = 'analyze' | 'sentiment';
 
 export class TokenAnalyzePanel extends Panel {
   private analysis: TokenAnalysis | null = null;
+  private sentimentReport: SentimentReport | null = null;
   private isLoading = false;
+  private isSentimentLoading = false;
+  private activeTab: TabId = 'analyze';
   private history: TokenAnalysis[] = [];
-  private tweetResult: CATweetResult | null = null;
+  private tabBar!: HTMLElement;
+
 
   constructor() {
     super({
@@ -20,6 +27,7 @@ export class TokenAnalyzePanel extends Panel {
     });
 
     this.addSearchBar();
+    this.addTabBar();
     this.renderEmpty();
   }
 
@@ -63,17 +71,78 @@ export class TokenAnalyzePanel extends Panel {
     this.header.after(search);
   }
 
-  public setLoading(): void {
-    this.isLoading = true;
+  private addTabBar(): void {
+    this.tabBar = document.createElement('div');
+    this.tabBar.className = 'ta-tab-bar';
+    this.tabBar.innerHTML = `
+      <button class="ta-tab active" data-tab="analyze">🔬 Token Analyze</button>
+      <button class="ta-tab" data-tab="sentiment">𝕏 Sentiment</button>
+    `;
+    this.tabBar.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.ta-tab') as HTMLElement;
+      if (!btn) return;
+      const tab = btn.dataset.tab as TabId;
+      if (tab && tab !== this.activeTab) {
+        this.activeTab = tab;
+        this.tabBar.querySelectorAll('.ta-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.renderActiveTab();
+      }
+    });
+    // Insert tab bar after search
+    const search = this.element.querySelector('.token-analyze-search');
+    if (search) {
+      search.after(this.tabBar);
+    } else {
+      this.header.after(this.tabBar);
+    }
+  }
+
+  private renderActiveTab(): void {
+    if (this.activeTab === 'analyze') {
+      if (this.isLoading) {
+        this.showLoadingUI('Analyzing token...');
+      } else if (this.analysis) {
+        this.renderAnalysis();
+      } else {
+        this.renderEmpty();
+      }
+    } else {
+      if (this.isSentimentLoading) {
+        this.showLoadingUI('Scanning X for mentions...');
+      } else if (this.sentimentReport) {
+        this.renderSentiment();
+      } else {
+        this.renderSentimentEmpty();
+      }
+    }
+  }
+
+  private showLoadingUI(text: string): void {
     this.content.innerHTML = `
       <div class="panel-loading">
         <div class="panel-loading-radar">
           <div class="panel-radar-sweep"></div>
           <div class="panel-radar-dot"></div>
         </div>
-        <div class="panel-loading-text">Analyzing token...</div>
+        <div class="panel-loading-text">${escapeHtml(text)}</div>
       </div>
     `;
+  }
+
+  /** Set the input field value (used when triggering analyze from external panels) */
+  public setInputValue(mint: string): void {
+    const input = this.element.querySelector('.token-analyze-input') as HTMLInputElement;
+    if (input) input.value = mint;
+  }
+
+  public setLoading(): void {
+    this.isLoading = true;
+    this.isSentimentLoading = true;
+    this.activeTab = 'analyze';
+    this.tabBar.querySelectorAll('.ta-tab').forEach(b => b.classList.remove('active'));
+    this.tabBar.querySelector('[data-tab="analyze"]')?.classList.add('active');
+    this.showLoadingUI('Analyzing token...');
   }
 
   public setAnalysis(analysis: TokenAnalysis): void {
@@ -81,34 +150,50 @@ export class TokenAnalyzePanel extends Panel {
     this.analysis = analysis;
     // Add to history (dedup by mint)
     this.history = [analysis, ...this.history.filter(h => h.mint !== analysis.mint)].slice(0, 10);
-    this.render();
+    if (this.activeTab === 'analyze') {
+      this.renderAnalysis();
+    }
   }
 
-  public setTweets(result: CATweetResult): void {
-    this.tweetResult = result;
-    // Re-render tweet section without full re-render
-    const container = this.content.querySelector('.ta-tweets-section');
-    if (container) {
-      container.outerHTML = this.renderTweets();
-      this.wireTweetLinks();
-    } else if (this.analysis) {
-      // Insert tweet section before history
-      const historyEl = this.content.querySelector('.ta-history');
-      const cardEl = this.content.querySelector('.ta-card');
-      if (cardEl) {
-        const tweetDiv = document.createElement('div');
-        tweetDiv.innerHTML = this.renderTweets();
-        if (historyEl) {
-          historyEl.before(tweetDiv.firstElementChild!);
-        } else {
-          cardEl.after(tweetDiv.firstElementChild!);
-        }
-        this.wireTweetLinks();
-      }
+  public setSentimentLoading(): void {
+    this.isSentimentLoading = true;
+    if (this.activeTab === 'sentiment') {
+      this.showLoadingUI('Scanning X for mentions...');
     }
+  }
 
-    // SocialData API is synchronous — no polling needed
-    // (tweets are returned immediately with 'ready' status)
+  public setSentimentReport(report: SentimentReport): void {
+    this.isSentimentLoading = false;
+    this.sentimentReport = report;
+    if (this.activeTab === 'sentiment') {
+      this.renderSentiment();
+    }
+    // Update tab badge
+    this.updateSentimentBadge(report);
+  }
+
+  public setSentimentError(msg: string): void {
+    this.isSentimentLoading = false;
+    this.sentimentReport = null;
+    if (this.activeTab === 'sentiment') {
+      this.content.innerHTML = `<div class="error-message">${escapeHtml(msg)}</div>`;
+    }
+  }
+
+  private updateSentimentBadge(report: SentimentReport): void {
+    const sentimentTab = this.tabBar.querySelector('[data-tab="sentiment"]');
+    if (!sentimentTab) return;
+    // Remove existing badge
+    sentimentTab.querySelector('.ta-tab-badge')?.remove();
+    if (report.status === 'ready' && report.totalTweets > 0) {
+      const color = report.overallLabel === 'bullish' ? '#14F195' :
+                    report.overallLabel === 'bearish' ? '#FF4444' : '#FFD700';
+      const badge = document.createElement('span');
+      badge.className = 'ta-tab-badge';
+      badge.style.background = color;
+      badge.textContent = String(report.totalTweets);
+      sentimentTab.appendChild(badge);
+    }
   }
 
   public setError(msg: string): void {
@@ -126,7 +211,17 @@ export class TokenAnalyzePanel extends Panel {
     `;
   }
 
-  private render(): void {
+  private renderSentimentEmpty(): void {
+    this.content.innerHTML = `
+      <div class="token-analyze-empty">
+        <div class="token-analyze-empty-icon">𝕏</div>
+        <div class="token-analyze-empty-text">Paste a CA above to see X/Twitter sentiment</div>
+        <div class="token-analyze-empty-sub">Tweet mentions, sentiment analysis, engagement metrics</div>
+      </div>
+    `;
+  }
+
+  private renderAnalysis(): void {
     if (!this.analysis) {
       this.renderEmpty();
       return;
@@ -210,11 +305,33 @@ export class TokenAnalyzePanel extends Panel {
 
         <!-- Top holders -->
         <div class="ta-holders">
+          <div class="ta-holders-title">Top Holders <span class="ta-holders-note">(pools excluded)</span></div>
           <div class="ta-holder-bar">
             <div class="ta-holder-top1" style="width: ${Math.min(100, a.topHolderPercent)}%"></div>
             <div class="ta-holder-top10" style="width: ${Math.min(100, Math.max(0, a.top10HolderPercent - a.topHolderPercent))}%"></div>
           </div>
-          <span class="ta-holder-label">Top holder: ${a.topHolderPercent.toFixed(1)}% | Top 10: ${a.top10HolderPercent.toFixed(1)}%</span>
+          <span class="ta-holder-summary">Top holder: ${a.topHolderPercent.toFixed(1)}% | Top 10: ${a.top10HolderPercent.toFixed(1)}%</span>
+          ${a.topHolders && a.topHolders.length > 0 ? `
+            <div class="ta-holder-list">
+              ${a.topHolders.map((h, i) => {
+                const pctColor = h.pct > 20 ? '#FF4444' : h.pct > 10 ? '#FF8844' : h.pct > 5 ? '#FFD700' : '#14F195';
+                const shortAddr = h.owner ? h.owner.slice(0, 4) + '...' + h.owner.slice(-4) : '???';
+                const label = h.label ? `<span class="ta-holder-label">${escapeHtml(h.label)}</span>` : '';
+                const insiderBadge = h.isInsider ? '<span class="ta-holder-insider">INSIDER</span>' : '';
+                const warnIcon = h.pct > 15 ? ' ⚠️' : '';
+                return `
+                  <div class="ta-holder-row ${h.pct > 15 ? 'ta-holder-danger' : h.pct > 5 ? 'ta-holder-warn' : ''}">
+                    <span class="ta-holder-rank">#${i + 1}</span>
+                    <a class="ta-holder-addr" href="https://solscan.io/account/${escapeHtml(h.owner)}" target="_blank" rel="noopener">${shortAddr}</a>
+                    ${label}${insiderBadge}
+                    <span class="ta-holder-pct" style="color: ${pctColor}">${h.pct.toFixed(2)}%${warnIcon}</span>
+                    <div class="ta-holder-pct-bar"><div class="ta-holder-pct-fill" style="width: ${Math.min(100, h.pct)}%; background: ${pctColor}"></div></div>
+                  </div>`;
+              }).join('')}
+            </div>
+          ` : '<div class="ta-holder-empty">No holder data available</div>'}
+          ${a.top10HolderPercent > 50 ? '<div class="ta-holder-warning">⚠️ Top 10 holders control over 50% — high concentration risk</div>' : ''}
+          ${a.topHolderPercent > 20 ? '<div class="ta-holder-warning">⚠️ Single holder has over 20% — potential dump risk</div>' : ''}
         </div>
 
         <!-- Risk factors -->
@@ -242,8 +359,6 @@ export class TokenAnalyzePanel extends Panel {
         </div>
       </div>
 
-      ${this.renderTweets()}
-
       ${this.history.length > 1 ? this.renderHistory() : ''}
     `;
 
@@ -267,111 +382,142 @@ export class TokenAnalyzePanel extends Panel {
       link.addEventListener('click', (e) => e.stopPropagation());
     });
 
-    // Tweet links
-    this.wireTweetLinks();
   }
 
-  /* ====================== Twitter/X CA Mentions ====================== */
+  /* ============================================================
+     X SENTIMENT TAB RENDERING
+     ============================================================ */
 
-  private renderTweets(): string {
-    if (!this.tweetResult) {
-      return `
-        <div class="ta-tweets-section">
-          <div class="ta-tweets-title">𝕏 CA MENTIONS</div>
-          <div class="ta-tweets-loading">
-            <span class="ta-tweets-spinner"></span>
-            Searching X for this CA...
-          </div>
+  private renderSentiment(): void {
+    const r = this.sentimentReport;
+    if (!r || r.status === 'no-data') {
+      this.content.innerHTML = `
+        <div class="token-analyze-empty">
+          <div class="token-analyze-empty-icon">𝕏</div>
+          <div class="token-analyze-empty-text">No tweets found for this token</div>
+          <div class="token-analyze-empty-sub">This CA has no recent mentions on X/Twitter</div>
         </div>
       `;
+      return;
+    }
+    if (r.status === 'error') {
+      this.content.innerHTML = `<div class="error-message">${escapeHtml(r.error || 'Sentiment analysis failed')}</div>`;
+      return;
     }
 
-    if (this.tweetResult.status === 'pending') {
-      return `
-        <div class="ta-tweets-section">
-          <div class="ta-tweets-title">𝕏 CA MENTIONS</div>
-          <div class="ta-tweets-loading">
-            <span class="ta-tweets-spinner"></span>
-            Scanning X/Twitter for mentions...
+    const scoreColor = r.overallLabel === 'bullish' ? '#14F195' :
+                        r.overallLabel === 'bearish' ? '#FF4444' : '#FFD700';
+    const scoreEmoji = r.overallLabel === 'bullish' ? '🟢' :
+                        r.overallLabel === 'bearish' ? '🔴' : '🟡';
+    const weightedColor = r.weightedScore > 15 ? '#14F195' :
+                          r.weightedScore < -15 ? '#FF4444' : '#FFD700';
+
+    this.content.innerHTML = `
+      <div class="xs-card">
+        <!-- Overall sentiment header -->
+        <div class="xs-header">
+          <div class="xs-score-main">
+            <span class="xs-score-emoji">${scoreEmoji}</span>
+            <span class="xs-score-value" style="color: ${scoreColor}">${r.overallScore > 0 ? '+' : ''}${r.overallScore}</span>
+            <span class="xs-score-label" style="color: ${scoreColor}">${r.overallLabel.toUpperCase()}</span>
+          </div>
+          <div class="xs-score-sub">
+            <span>Weighted: <b style="color: ${weightedColor}">${r.weightedScore > 0 ? '+' : ''}${r.weightedScore}</b></span>
           </div>
         </div>
-      `;
-    }
 
-    if (this.tweetResult.status === 'error') {
-      return `
-        <div class="ta-tweets-section">
-          <div class="ta-tweets-title">𝕏 CA MENTIONS</div>
-          <div class="ta-tweets-empty">Could not fetch tweets</div>
-        </div>
-      `;
-    }
-
-    const tweets = this.tweetResult.tweets;
-    if (tweets.length === 0) {
-      return `
-        <div class="ta-tweets-section">
-          <div class="ta-tweets-title">𝕏 CA MENTIONS</div>
-          <div class="ta-tweets-empty">No tweets found mentioning this CA</div>
-        </div>
-      `;
-    }
-
-    // Compute aggregate sentiment from tweet content
-    const totalEngagement = tweets.reduce((s, t) => s + t.likes + t.retweets + t.replies, 0);
-
-    const tweetsHtml = tweets.slice(0, 10).map(t => {
-      const followersStr = t.followers >= 1000
-        ? `${(t.followers / 1000).toFixed(t.followers >= 100_000 ? 0 : 1)}K`
-        : String(t.followers);
-      const link = t.url
-        ? `<a href="${escapeHtml(t.url)}" target="_blank" rel="noopener" class="ta-tweet-link">↗</a>`
-        : '';
-      const dateStr = t.date ? this.tweetTimeAgo(t.date) : '';
-
-      return `
-        <div class="ta-tweet">
-          <div class="ta-tweet-header">
-            <span class="ta-tweet-author">@${escapeHtml(t.handle || t.author)}</span>
-            <span class="ta-tweet-followers">${followersStr}</span>
-            <span class="ta-tweet-time">${dateStr}</span>
-            ${link}
+        <!-- Sentiment bar -->
+        <div class="xs-bar-section">
+          <div class="xs-bar">
+            <div class="xs-bar-bullish" style="width: ${r.totalTweets ? (r.bullishCount / r.totalTweets * 100) : 0}%"></div>
+            <div class="xs-bar-neutral" style="width: ${r.totalTweets ? (r.neutralCount / r.totalTweets * 100) : 0}%"></div>
+            <div class="xs-bar-bearish" style="width: ${r.totalTweets ? (r.bearishCount / r.totalTweets * 100) : 0}%"></div>
           </div>
-          <div class="ta-tweet-text">${escapeHtml(t.text)}</div>
-          <div class="ta-tweet-meta">
-            <span class="ta-tweet-stat">❤️ ${this.fmtNum(t.likes)}</span>
-            <span class="ta-tweet-stat">🔁 ${this.fmtNum(t.retweets)}</span>
-            <span class="ta-tweet-stat">💬 ${this.fmtNum(t.replies)}</span>
+          <div class="xs-bar-labels">
+            <span class="xs-bar-label bullish">🟢 ${r.bullishCount} Bullish</span>
+            <span class="xs-bar-label neutral">🟡 ${r.neutralCount} Neutral</span>
+            <span class="xs-bar-label bearish">🔴 ${r.bearishCount} Bearish</span>
           </div>
         </div>
-      `;
-    }).join('');
 
-    return `
-      <div class="ta-tweets-section">
-        <div class="ta-tweets-title">
-          𝕏 CA MENTIONS
-          <span class="ta-tweets-count">${tweets.length} tweets · ${this.fmtNum(totalEngagement)} engagements</span>
+        <!-- Stats -->
+        <div class="xs-stats">
+          <div class="xs-stat"><span class="xs-stat-label">Tweets</span><span class="xs-stat-value">${r.totalTweets}</span></div>
+          <div class="xs-stat"><span class="xs-stat-label">Avg Followers</span><span class="xs-stat-value">${this.fmtNum(r.avgFollowers)}</span></div>
+          <div class="xs-stat"><span class="xs-stat-label">Total Engagement</span><span class="xs-stat-value">${this.fmtNum(r.totalEngagement)}</span></div>
         </div>
-        <div class="ta-tweets-list">${tweetsHtml}</div>
+
+        <!-- Tweet list -->
+        <div class="xs-tweets-title">Recent Mentions</div>
+        <div class="xs-tweets">
+          ${r.tweets.map(t => this.renderSentimentTweet(t)).join('')}
+        </div>
       </div>
     `;
-  }
 
-  private wireTweetLinks(): void {
-    this.content.querySelectorAll('.ta-tweet-link').forEach(link => {
+    // External link handlers
+    this.content.querySelectorAll('.xs-tweet-link').forEach(link => {
       link.addEventListener('click', (e) => e.stopPropagation());
     });
   }
 
+  private renderSentimentTweet(ts: TweetSentiment): string {
+    const t = ts.tweet;
+    const sentColor = ts.sentiment === 'bullish' ? '#14F195' :
+                      ts.sentiment === 'bearish' ? '#FF4444' : '#FFD700';
+    const sentIcon = ts.sentiment === 'bullish' ? '🟢' :
+                     ts.sentiment === 'bearish' ? '🔴' : '🟡';
+    const timeAgo = this.tweetTimeAgo(t.date);
+    const shortText = t.text.length > 200 ? t.text.slice(0, 200) + '...' : t.text;
+
+    return `
+      <div class="xs-tweet">
+        <div class="xs-tweet-header">
+          ${t.avatar ? `<img class="xs-tweet-avatar" src="${escapeHtml(t.avatar)}" alt="" onerror="this.style.display='none'" />` : ''}
+          <div class="xs-tweet-author">
+            <span class="xs-tweet-name">${escapeHtml(t.author)}</span>
+            <span class="xs-tweet-handle">@${escapeHtml(t.handle)}</span>
+          </div>
+          <span class="xs-tweet-sentiment" style="color: ${sentColor}">${sentIcon}</span>
+          <span class="xs-tweet-time">${timeAgo}</span>
+        </div>
+        <div class="xs-tweet-text">${escapeHtml(shortText)}</div>
+        <div class="xs-tweet-metrics">
+          <span class="xs-tweet-metric">❤️ ${this.fmtMetric(t.likes)}</span>
+          <span class="xs-tweet-metric">🔁 ${this.fmtMetric(t.retweets)}</span>
+          <span class="xs-tweet-metric">💬 ${this.fmtMetric(t.replies)}</span>
+          <span class="xs-tweet-metric">👁 ${this.fmtMetric(t.views)}</span>
+          ${t.followers > 1000 ? `<span class="xs-tweet-metric followers">👥 ${this.fmtMetric(t.followers)}</span>` : ''}
+        </div>
+        ${ts.matchedKeywords.length > 0 ? `
+          <div class="xs-tweet-keywords">
+            ${ts.matchedKeywords.slice(0, 5).map(kw => {
+              const cls = kw.startsWith('+') ? 'kw-bull' : 'kw-bear';
+              return `<span class="xs-kw ${cls}">${escapeHtml(kw)}</span>`;
+            }).join('')}
+          </div>
+        ` : ''}
+        <a class="xs-tweet-link" href="${escapeHtml(t.url)}" target="_blank" rel="noopener">View on X ↗</a>
+      </div>
+    `;
+  }
+
   private tweetTimeAgo(dateStr: string): string {
-    const ts = new Date(dateStr).getTime();
-    if (isNaN(ts)) return dateStr;
-    const diff = (Date.now() - ts) / 1000;
-    if (diff < 60) return 'just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-    return `${Math.floor(diff / 86400)}d`;
+    if (!dateStr) return '';
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `${days}d`;
+  }
+
+  private fmtMetric(n: number): string {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+    return String(n);
   }
 
   private renderFactor(f: RiskFactor): string {

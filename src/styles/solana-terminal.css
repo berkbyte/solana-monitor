@@ -210,247 +210,334 @@
 .fee-turbo { color: #FF4444; }
 
 /* ============================================================
-   TOKEN RADAR PANEL
+   TOKEN RADAR PANEL — Gem Hunter
    ============================================================ */
 
-/* ── Sort Bar (segmented control) ── */
-.tr-sort-bar {
+/* ── Filter & Sort Bar ── */
+.gr-filter-bar {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.gr-filters {
+  display: flex;
+  gap: 1px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 2px;
-  margin-left: auto;
-  flex-shrink: 1;
-  min-width: 0;
   overflow: hidden;
 }
 
-.tr-sort {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px 6px;
-  font-size: 0.58rem;
+.gr-filter {
+  padding: 3px 7px;
+  font-size: 0.56rem;
   font-weight: 600;
-  letter-spacing: 0.2px;
   font-family: inherit;
   border: none;
   border-radius: 4px;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s ease;
   white-space: nowrap;
   text-transform: uppercase;
-  flex-shrink: 0;
+  letter-spacing: 0.3px;
 }
 
-.tr-sort:hover {
-  color: var(--text);
-  background: var(--overlay-light);
-}
-
-.tr-sort.active {
+.gr-filter:hover { color: var(--text); background: var(--overlay-light); }
+.gr-filter.active {
   background: rgba(153, 69, 255, 0.2);
   color: #c084fc;
-  box-shadow: 0 0 8px rgba(153, 69, 255, 0.15);
 }
 
-.tr-sort-ico {
-  font-size: 0.65rem;
-  line-height: 1;
-  display: none;
-}
-
-/* ── Token Card ── */
-@keyframes tr-slide-in {
-  from { opacity: 0; transform: translateX(-6px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-.tr-card {
+.gr-sorts {
   display: flex;
-  align-items: stretch;
+  gap: 1px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.gr-sort {
+  padding: 3px 5px;
+  font-size: 0.62rem;
+  font-family: inherit;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.15s ease;
-  animation: tr-slide-in 0.25s ease both;
+  transition: all 0.2s ease;
+  line-height: 1;
+  opacity: 0.5;
+}
+.gr-sort:hover { opacity: 0.8; background: var(--overlay-light); }
+.gr-sort.active {
+  opacity: 1;
+  background: rgba(153, 69, 255, 0.15);
+}
+
+/* ── Gem Card ── */
+@keyframes gr-slide-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.gr-card {
+  padding: 8px 10px;
+  cursor: pointer;
   border-bottom: 1px solid var(--border-subtle);
+  transition: background 0.15s ease, transform 0.1s ease;
+  animation: gr-slide-in 0.25s ease both;
   position: relative;
 }
-
-.tr-card:last-child {
-  border-bottom: none;
-}
-
-.tr-card:hover {
+.gr-card:last-child { border-bottom: none; }
+.gr-card:hover {
   background: var(--surface-hover);
   transform: translateX(2px);
 }
+.gr-card:active { transform: scale(0.997); }
 
-.tr-card:active {
-  transform: scale(0.995);
-}
-
-/* Left accent bar — color set by rug class */
-.tr-accent {
+/* Tier glow on left */
+.gr-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
   width: 3px;
-  flex-shrink: 0;
   border-radius: 0 2px 2px 0;
   transition: width 0.15s ease;
 }
+.gr-card:hover::before { width: 4px; }
+.gr-card.tier-gem::before    { background: linear-gradient(180deg, #00d4ff, #a855f7); box-shadow: 0 0 8px rgba(168, 85, 247, 0.3); }
+.gr-card.tier-hot::before    { background: linear-gradient(180deg, #ff6b35, #ffd700); }
+.gr-card.tier-potential::before { background: #14F195; }
+.gr-card.tier-watch::before  { background: var(--text-ghost); }
 
-.tr-card:hover .tr-accent {
-  width: 4px;
-}
-
-.tr-accent.rug-safe    { background: #14F195; }
-.tr-accent.rug-caution { background: #FFD700; }
-.tr-accent.rug-risky   { background: #FF8844; }
-.tr-accent.rug-danger  { background: #FF4444; }
-
-/* Card body */
-.tr-body {
-  flex: 1;
-  min-width: 0;
-  padding: 7px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-/* Top row: identity + pricing */
-.tr-row-top {
+/* Card header: symbol + score */
+.gr-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  margin-bottom: 5px;
 }
 
-.tr-identity {
+.gr-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
 }
 
-.tr-symbol {
+.gr-right {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gr-analyze-btn {
+  background: rgba(0, 200, 255, 0.12);
+  border: 1px solid rgba(0, 200, 255, 0.3);
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: #00c8ff;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.gr-analyze-btn:hover {
+  background: rgba(0, 200, 255, 0.25);
+  border-color: rgba(0, 200, 255, 0.6);
+  transform: scale(1.05);
+  box-shadow: 0 0 8px rgba(0, 200, 255, 0.35);
+  color: #fff;
+}
+
+.gr-tier-badge {
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.gr-symbol {
   font-weight: 700;
   font-size: 0.82rem;
   color: var(--text);
   letter-spacing: 0.3px;
 }
 
-.tr-age {
-  font-size: 0.58rem;
+.gr-age {
+  font-size: 0.55rem;
   font-weight: 600;
   color: var(--text-muted);
   background: var(--overlay-light);
-  padding: 1px 5px;
+  padding: 1px 4px;
   border-radius: 3px;
   letter-spacing: 0.2px;
-  text-transform: uppercase;
-  flex-shrink: 0;
 }
 
-.tr-pricing {
+.gr-tag {
+  font-size: 0.5rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+.gr-tag.trending { background: rgba(255, 107, 53, 0.15); color: #ff6b35; }
+.gr-tag.boosted  { background: rgba(255, 215, 0, 0.15); color: #ffd700; }
+
+/* Score badge */
+.gr-score-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: 6px;
+  letter-spacing: -0.3px;
+}
+.gr-score-badge.tier-gem {
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(168, 85, 247, 0.2));
+  color: #c084fc;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+  animation: gr-gem-pulse 2.5s ease-in-out infinite;
+}
+.gr-score-badge.tier-hot {
+  background: rgba(255, 107, 53, 0.15);
+  color: #ff8c42;
+}
+.gr-score-badge.tier-potential {
+  background: rgba(20, 241, 149, 0.12);
+  color: #14F195;
+}
+.gr-score-badge.tier-watch {
+  background: var(--overlay-light);
+  color: var(--text-dim);
+}
+
+@keyframes gr-gem-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(168, 85, 247, 0.2); }
+  50%      { box-shadow: 0 0 18px rgba(168, 85, 247, 0.4); }
+}
+
+/* Card body */
+.gr-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Price row */
+.gr-price-row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  flex-shrink: 0;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.tr-price {
+.gr-price {
   font-size: 0.78rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 
-.tr-change {
-  font-size: 0.68rem;
+.gr-changes {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.gr-ch {
+  font-size: 0.62rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.2px;
 }
+.gr-ch.up   { color: #14F195; }
+.gr-ch.down { color: #FF4444; }
 
-.tr-change.up   { color: #14F195; }
-.tr-change.down { color: #FF4444; }
-
-/* Bottom row: name + stats */
-.tr-row-bot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.tr-name {
-  font-size: 0.62rem;
-  color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.tr-stats {
-  display: flex;
-  align-items: center;
+/* Metrics row */
+.gr-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
-  flex-shrink: 0;
 }
 
-.tr-vol,
-.tr-liq {
+.gr-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.gr-metric-label {
+  font-size: 0.48rem;
+  font-weight: 600;
+  color: var(--text-ghost);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.gr-metric-val {
   font-size: 0.6rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
-  font-weight: 500;
+}
+.gr-metric-val.up   { color: #14F195; }
+.gr-metric-val.down { color: #FF4444; }
+.gr-metric-val.risk-low      { color: #14F195; }
+.gr-metric-val.risk-medium   { color: #ffd700; }
+.gr-metric-val.risk-high     { color: #ff8844; }
+.gr-metric-val.risk-critical { color: #ff4444; }
+
+/* Score bars */
+.gr-score-bars {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 2px;
 }
 
-.tr-dot {
-  color: var(--text-ghost);
-  font-size: 0.55rem;
-  user-select: none;
+.gr-sbar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-/* Rug badge */
-.tr-rug-badge {
-  font-size: 0.55rem;
+.gr-sbar-label {
+  font-size: 0.44rem;
   font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 3px;
-  letter-spacing: 0.3px;
-  white-space: nowrap;
+  color: var(--text-ghost);
+  text-align: center;
+  letter-spacing: 0.5px;
 }
 
-.tr-rug-badge.rug-safe {
-  background: rgba(20, 241, 149, 0.12);
-  color: #14F195;
+.gr-sbar-track {
+  height: 3px;
+  background: var(--surface);
+  border-radius: 2px;
+  overflow: hidden;
 }
 
-.tr-rug-badge.rug-caution {
-  background: rgba(255, 215, 0, 0.12);
-  color: #FFD700;
+.gr-sbar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 1px;
 }
-
-.tr-rug-badge.rug-risky {
-  background: rgba(255, 136, 68, 0.12);
-  color: #FF8844;
-}
-
-.tr-rug-badge.rug-danger {
-  background: rgba(255, 68, 68, 0.15);
-  color: #FF4444;
-  animation: tr-danger-pulse 2s ease-in-out infinite;
-}
-
-@keyframes tr-danger-pulse {
-  0%, 100% { box-shadow: none; }
-  50%      { box-shadow: 0 0 6px rgba(255, 68, 68, 0.3); }
-}
+.gr-sbar-fill.mom  { background: linear-gradient(90deg, #ff6b35, #ffd700); }
+.gr-sbar-fill.vol  { background: linear-gradient(90deg, #00d4ff, #14F195); }
+.gr-sbar-fill.buy  { background: linear-gradient(90deg, #14F195, #a855f7); }
+.gr-sbar-fill.safe { background: linear-gradient(90deg, #14F195, #00d4ff); }
 
 /* Keep generic rug classes for backwards compat */
 .rug-safe    { background: rgba(20, 241, 149, 0.15); color: #14F195; }
@@ -1446,6 +1533,54 @@
    TOKEN ANALYZE PANEL
    ============================================================ */
 
+/* Tab bar */
+.ta-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.ta-tab {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.ta-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ta-tab.active {
+  color: var(--solana-green);
+  border-bottom-color: var(--solana-green);
+}
+
+.ta-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 5px;
+  border-radius: 8px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #000;
+  vertical-align: middle;
+}
+
 .token-analyze-search {
   display: flex;
   gap: 4px;
@@ -1704,6 +1839,18 @@
   margin-bottom: 8px;
 }
 
+.ta-holders-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.ta-holders-note {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
 .ta-holder-bar {
   height: 6px;
   display: flex;
@@ -1715,11 +1862,100 @@
 .ta-holder-top1 { background: #FF4444; }
 .ta-holder-top10 { background: #FF8844; }
 
-.ta-holder-label {
+.ta-holder-summary {
   font-size: 0.6rem;
   color: var(--text-dim);
   margin-top: 2px;
   display: block;
+  margin-bottom: 4px;
+}
+
+/* Top 10 holder list */
+.ta-holder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+}
+
+.ta-holder-row {
+  display: grid;
+  grid-template-columns: 22px 72px auto 52px;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6rem;
+  padding: 2px 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.02);
+}
+.ta-holder-row.ta-holder-danger { background: rgba(255,68,68,0.08); }
+.ta-holder-row.ta-holder-warn { background: rgba(255,215,0,0.06); }
+
+.ta-holder-rank {
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 0.58rem;
+}
+.ta-holder-addr {
+  color: var(--solana-green);
+  text-decoration: none;
+  font-family: monospace;
+  font-size: 0.58rem;
+}
+.ta-holder-addr:hover { text-decoration: underline; }
+
+.ta-holder-label {
+  font-size: 0.55rem;
+  color: #9945FF;
+  background: rgba(153,69,255,0.12);
+  padding: 0 3px;
+  border-radius: 2px;
+  margin-left: 2px;
+}
+.ta-holder-insider {
+  font-size: 0.52rem;
+  color: #FF4444;
+  background: rgba(255,68,68,0.12);
+  padding: 0 3px;
+  border-radius: 2px;
+  font-weight: 700;
+  margin-left: 2px;
+}
+
+.ta-holder-pct {
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.6rem;
+}
+
+.ta-holder-pct-bar {
+  grid-column: 1 / -1;
+  height: 2px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.ta-holder-pct-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 0.3s;
+}
+
+.ta-holder-empty {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  padding: 4px;
+  font-style: italic;
+}
+
+.ta-holder-warning {
+  font-size: 0.6rem;
+  color: #FF8844;
+  padding: 3px 4px;
+  margin-top: 4px;
+  background: rgba(255,136,68,0.08);
+  border-radius: 2px;
+  border-left: 2px solid #FF8844;
 }
 
 /* Risk factors */
@@ -1876,135 +2112,270 @@
   font-size: 0.62rem;
 }
 
-/* ============================================================
-   TOKEN ANALYZE — X/TWITTER CA MENTIONS
-   ============================================================ */
-
-.ta-tweets-section {
-  margin-top: 12px;
-  padding: 10px;
-  background: linear-gradient(135deg, rgba(29, 161, 242, 0.08), rgba(29, 161, 242, 0.03));
-  border: 1px solid rgba(29, 161, 242, 0.15);
-  border-radius: 6px;
-}
-
-.ta-tweets-title {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #1da1f2;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ta-tweets-count {
-  font-size: 0.6rem;
-  font-weight: 400;
-  color: var(--text-dim, #888);
-  margin-left: auto;
-}
-
-.ta-tweets-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.65rem;
-  color: var(--text-dim, #888);
-  padding: 8px 0;
-}
-
-.ta-tweets-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(29, 161, 242, 0.2);
-  border-top-color: #1da1f2;
-  border-radius: 50%;
-  animation: ta-spin 0.8s linear infinite;
-}
-
-@keyframes ta-spin {
-  to { transform: rotate(360deg); }
-}
-
-.ta-tweets-empty {
-  font-size: 0.65rem;
-  color: var(--text-dim, #888);
-  padding: 6px 0;
-}
-
-.ta-tweets-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.ta-tweet {
-  padding: 8px;
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 4px;
-  border: 1px solid rgba(29, 161, 242, 0.08);
-}
-
-.ta-tweet-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-  font-size: 0.6rem;
-}
-
-.ta-tweet-author {
-  font-weight: 600;
-  color: #1da1f2;
-}
-
-.ta-tweet-followers {
-  color: var(--text-dim, #888);
-  font-size: 0.55rem;
-}
-
-.ta-tweet-time {
-  color: var(--text-dim, #888);
-  font-size: 0.55rem;
-  margin-left: auto;
-}
-
-.ta-tweet-link {
-  color: #1da1f2;
-  text-decoration: none;
-  font-size: 0.7rem;
-}
-
-.ta-tweet-link:hover {
-  opacity: 0.8;
-}
-
-.ta-tweet-text {
-  font-size: 0.63rem;
-  color: var(--text, #ccc);
-  line-height: 1.5;
-  word-break: break-word;
-  margin-bottom: 4px;
-}
-
-.ta-tweet-meta {
-  display: flex;
-  gap: 10px;
-  font-size: 0.55rem;
-  color: var(--text-dim, #888);
-}
-
-.ta-tweet-stat {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
 @media (max-width: 768px) {
   .ta-stats {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+/* ============================================================
+   X SENTIMENT TAB
+   ============================================================ */
+
+.xs-card {
+  padding: 10px;
+}
+
+/* Overall sentiment header */
+.xs-header {
+  text-align: center;
+  padding: 8px 0 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.xs-score-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.xs-score-emoji {
+  font-size: 1.3rem;
+}
+
+.xs-score-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.xs-score-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.xs-score-sub {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* Sentiment bar */
+.xs-bar-section {
+  margin-bottom: 8px;
+}
+
+.xs-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface);
+  gap: 1px;
+}
+
+.xs-bar-bullish {
+  background: #14F195;
+  transition: width 0.3s;
+}
+
+.xs-bar-neutral {
+  background: #FFD700;
+  transition: width 0.3s;
+}
+
+.xs-bar-bearish {
+  background: #FF4444;
+  transition: width 0.3s;
+}
+
+.xs-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.xs-bar-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.xs-bar-label.bullish { color: #14F195; }
+.xs-bar-label.neutral { color: #FFD700; }
+.xs-bar-label.bearish { color: #FF4444; }
+
+/* Stats */
+.xs-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.xs-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px;
+  background: var(--surface);
+  border-radius: 3px;
+}
+
+.xs-stat-label {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.xs-stat-value {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Tweets title */
+.xs-tweets-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Tweet list */
+.xs-tweets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.xs-tweet {
+  padding: 6px 8px;
+  background: var(--surface);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  transition: border-color 0.15s;
+}
+
+.xs-tweet:hover {
+  border-color: rgba(20, 241, 149, 0.3);
+}
+
+.xs-tweet-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.xs-tweet-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.xs-tweet-author {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.xs-tweet-name {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xs-tweet-handle {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+}
+
+.xs-tweet-sentiment {
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.xs-tweet-time {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.xs-tweet-text {
+  font-size: 0.65rem;
+  line-height: 1.4;
+  color: var(--text);
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.xs-tweet-metrics {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.xs-tweet-metric {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+}
+
+.xs-tweet-metric.followers {
+  color: #9945FF;
+  font-weight: 600;
+}
+
+/* Keyword badges */
+.xs-tweet-keywords {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+}
+
+.xs-kw {
+  font-size: 0.55rem;
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.xs-kw.kw-bull {
+  background: rgba(20, 241, 149, 0.12);
+  color: #14F195;
+}
+
+.xs-kw.kw-bear {
+  background: rgba(255, 68, 68, 0.12);
+  color: #FF4444;
+}
+
+.xs-tweet-link {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 0.58rem;
+  color: var(--solana-green);
+  text-decoration: none;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.xs-tweet-link:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 
 /* ============================================================

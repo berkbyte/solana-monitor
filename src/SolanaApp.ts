@@ -27,7 +27,7 @@ import { fetchLiquidStaking } from '@/services/liquid-staking';
 import { fetchNFTData } from '@/services/nft-tracker';
 import { fetchGovernanceData } from '@/services/governance';
 import { analyzeTokenCA } from '@/services/token-analyze';
-import { fetchCATweets, clearCATweetCache } from '@/services/twitter-ca-search';
+import { fetchSentimentReport } from '@/services/x-sentiment';
 
 import {
   Panel,
@@ -422,11 +422,7 @@ export class App {
       const tokens = await fetchTrendingTokens();
       const tokenPanel = this.panels['token-radar'] as TokenRadarPanel;
       if (tokenPanel && tokens.length > 0) {
-        tokenPanel.update(tokens.map(t => ({
-          ...t,
-          dex: 'DexScreener',
-          txCount24h: 0,
-        })));
+        tokenPanel.update(tokens);
       }
     } catch (e) {
       console.error('[SolanaApp] Failed to load token data:', e);
@@ -728,19 +724,18 @@ export class App {
       if (detail?.mint) {
         const panel = this.panels['token-analyze'] as TokenAnalyzePanel;
         if (!panel) return;
+        panel.setInputValue(detail.mint);
         panel.setLoading();
-        // Clear previous tweet cache for fresh search
-        clearCATweetCache(detail.mint);
+
+        // Run token analysis and X sentiment in parallel
+        const analyzePromise = analyzeTokenCA(detail.mint);
+        const sentimentPromise = fetchSentimentReport(detail.mint);
+
+        // Handle token analysis
         try {
-          // Fetch token analysis and X/Twitter mentions in parallel
-          const [result, tweets] = await Promise.all([
-            analyzeTokenCA(detail.mint),
-            fetchCATweets(detail.mint).catch(() => null),
-          ]);
+          const result = await analyzePromise;
           if (result) {
             panel.setAnalysis(result);
-            // Show tweets (may be pending — panel handles auto-poll)
-            if (tweets) panel.setTweets(tweets);
           } else {
             panel.setError('Token not found or no liquidity pairs available. Check the CA and try again.');
           }
@@ -748,20 +743,14 @@ export class App {
           panel.setError('Analysis failed. Please try again.');
           console.error('[TokenAnalyze] Error:', err);
         }
-      }
-    });
 
-    // Tweet poll event — re-check pending tweet results
-    this.container.addEventListener('token-tweets-poll', async (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.mint) {
-        const panel = this.panels['token-analyze'] as TokenAnalyzePanel;
-        if (!panel) return;
+        // Handle sentiment (non-blocking)
         try {
-          const tweets = await fetchCATweets(detail.mint);
-          panel.setTweets(tweets);
+          const sentiment = await sentimentPromise;
+          panel.setSentimentReport(sentiment);
         } catch (err) {
-          console.warn('[TwitterCA] Poll error:', err);
+          panel.setSentimentError('Sentiment analysis failed.');
+          console.error('[XSentiment] Error:', err);
         }
       }
     });

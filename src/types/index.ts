@@ -352,7 +352,7 @@ export interface FocalPointSummary {
 // SOLANA TERMINAL — Domain Types
 // ============================================================================
 
-export type GlobeMode = 'validators' | 'depin' | 'flow' | 'risk' | 'defi';
+export type GlobeMode = 'validators' | 'depin' | 'risk' | 'defi';
 
 export interface SolanaValidator {
   pubkey: string;
@@ -477,7 +477,7 @@ export interface MevBundle {
 
 export interface DePINNode {
   id: string;
-  network: 'helium' | 'render' | 'ionet' | 'hivemapper' | 'other';
+  network: 'helium-iot' | 'helium-mobile' | 'render' | 'ionet' | 'hivemapper' | 'grass' | 'geodnet' | 'nosana' | 'shadow' | 'other';
   lat: number;
   lon: number;
   status: 'active' | 'offline' | 'relay';

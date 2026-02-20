@@ -1,24 +1,23 @@
-// SolanaDeckGlobe — deck.gl + MapLibre GL globe with 5 visualization modes
+// SolanaDeckGlobe — deck.gl + MapLibre GL globe with 4 visualization modes
 // Replaces the Canvas 2D SolanaGlobe with GPU-accelerated WebGL rendering
 //
 // Modes:
 //   1. Validators — ScatterplotLayer + HeatmapLayer for stake distribution
 //   2. DePIN      — ScatterplotLayer for Helium/Render/IoNet/Hivemapper nodes
-//   3. Flow       — ArcLayer for whale movements, animated pulse
-//   4. Risk       — HeatmapLayer + ScatterplotLayer for DC concentration
-//   5. DeFi       — ScatterplotLayer + TextLayer for protocol TVL bubbles
+//   3. Risk       — HeatmapLayer + ScatterplotLayer for DC concentration
+//   4. DeFi       — ScatterplotLayer + TextLayer for protocol TVL bubbles
 
 import maplibregl from 'maplibre-gl';
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import type { Layer } from '@deck.gl/core';
-import { ScatterplotLayer, ArcLayer, TextLayer } from '@deck.gl/layers';
+import { ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 
 import type { GlobeMode } from './GlobeModeSwitcher';
 import type { SolanaValidator, ValidatorCluster, DePINNode, MapLayers } from '@/types';
-import { fetchValidatorGeoData, computeNakamoto, getDatacenterConcentration } from '@/services/validator-geo';
-import { fetchDePINNodes, getDePINStats } from '@/services/depin-geo';
-import { fetchWhaleTransactions, type WhaleTransaction } from '@/services/whale-watch';
+import { fetchValidatorGeoData, getDatacenterConcentration, getValidatorStats } from '@/services/validator-geo';
+import { fetchDePINNodes, getDePINStats, DEPIN_NETWORK_INFO } from '@/services/depin-geo';
+
 
 // ── Color palette ──────────────────────────────────────────────────────────
 const COLORS = {
@@ -37,10 +36,15 @@ const COLORS = {
   firedancer: [0, 209, 255] as [number, number, number],   // cyan
 
   // DePIN network colors
-  helium: [20, 241, 149] as [number, number, number],
+  'helium-iot': [20, 241, 149] as [number, number, number],
+  'helium-mobile': [0, 255, 200] as [number, number, number],
   render: [255, 105, 180] as [number, number, number],
   ionet: [0, 209, 255] as [number, number, number],
   hivemapper: [255, 215, 0] as [number, number, number],
+  grass: [120, 255, 80] as [number, number, number],
+  geodnet: [255, 165, 0] as [number, number, number],
+  nosana: [180, 100, 255] as [number, number, number],
+  shadow: [200, 200, 220] as [number, number, number],
 
   // Risk
   riskLow: [20, 241, 149] as [number, number, number],
@@ -53,21 +57,8 @@ interface GlobeData {
   validators: SolanaValidator[];
   clusters: ValidatorCluster[];
   depinNodes: DePINNode[];
-  // Flow data (whale arcs)
-  flowArcs: FlowArc[];
   // DeFi bubbles
   defiBubbles: DeFiBubble[];
-}
-
-interface FlowArc {
-  id: string;
-  sourceLat: number;
-  sourceLon: number;
-  targetLat: number;
-  targetLon: number;
-  amount: number;
-  color: [number, number, number];
-  label: string;
 }
 
 interface DeFiBubble {
@@ -76,27 +67,151 @@ interface DeFiBubble {
   lon: number;
   tvl: number;
   change24h: number;
+  change7d: number;
   category: string;
+  slug: string;
 }
 
-// ── DeFi protocol locations — TVLs fetched from DeFi Llama at runtime ───────
-// Coordinates are static (headquarters / main user base), TVLs are updated
-const DEFI_PROTOCOL_COORDS: Array<{ name: string; slug: string; lat: number; lon: number; category: string }> = [
-  { name: 'Jupiter', slug: 'jupiter', lat: 1.3521, lon: 103.8198, category: 'DEX' },
-  { name: 'Raydium', slug: 'raydium', lat: 22.3193, lon: 114.1694, category: 'DEX' },
-  { name: 'Marinade', slug: 'marinade-finance', lat: 48.2082, lon: 16.3738, category: 'LST' },
-  { name: 'Jito', slug: 'jito', lat: 40.7128, lon: -74.0060, category: 'LST' },
-  { name: 'Drift', slug: 'drift', lat: -33.8688, lon: 151.2093, category: 'Perps' },
-  { name: 'Kamino', slug: 'kamino', lat: 51.5074, lon: -0.1278, category: 'Lending' },
-  { name: 'MarginFi', slug: 'marginfi', lat: 37.7749, lon: -122.4194, category: 'Lending' },
-  { name: 'Orca', slug: 'orca', lat: 47.6062, lon: -122.3321, category: 'DEX' },
-  { name: 'Meteora', slug: 'meteora', lat: 3.1390, lon: 101.6869, category: 'DEX' },
-  { name: 'Sanctum', slug: 'sanctum', lat: 34.0522, lon: -118.2437, category: 'LST' },
-  { name: 'Tensor', slug: 'tensor', lat: 52.5200, lon: 13.4050, category: 'NFT' },
-  { name: 'Phoenix', slug: 'phoenix', lat: 33.4484, lon: -112.0740, category: 'DEX' },
-  { name: 'Solend', slug: 'solend', lat: 25.7617, lon: -80.1918, category: 'Lending' },
-  { name: 'Pyth', slug: 'pyth-network', lat: 41.8781, lon: -87.6298, category: 'Oracle' },
-];
+// ── DeFi category → map zone mapping ─────────────────────────────────────────
+// Each category gets a geographic zone on the map for visual clustering.
+// Protocols within a category are spread using golden-angle spiral placement.
+// ── Category colors for DeFi legend/tooltip (kept for styling) ──
+const CATEGORY_COLORS: Record<string, string> = {
+  'Dexes': '#14F195', 'DEX': '#14F195', 'Dexs': '#14F195',
+  'Lending': '#00D1FF',
+  'Liquid Staking': '#FFD700', 'LST': '#FFD700',
+  'Derivatives': '#FF69B4', 'Perps': '#FF69B4',
+  'Yield': '#B464FF', 'Yield Aggregator': '#B464FF',
+  'Bridge': '#FFA500',
+  'CDP': '#00FFC8',
+  'Oracle': '#C8C8DC',
+  'NFT Marketplace': '#FF5050', 'NFT': '#FF5050', 'NFT Lending': '#FF5050',
+  'Payments': '#78FF50',
+  'Reserve Currency': '#E0E0FF',
+  'Options': '#FF8844',
+  'Launchpad': '#AADDFF',
+  'RWA': '#DDFF88',
+  'Insurance': '#88CCFF',
+  'CEX': '#FF4444',
+  'Risk Curators': '#C8A2FF',
+  'Liquid Restaking': '#E5A100',
+  'Basis Trading': '#44DDBB',
+};
+const DEFAULT_CAT_COLOR = '#888888';
+
+// ── Real HQ / founding-team locations for known Solana DeFi protocols ──
+// Key = DeFi Llama slug.  Coords = operational HQ city (NOT small-island
+// registration addresses like Curaçao/Cayman/BVI/Seychelles — those tiny
+// islands appear as ocean on globe maps).
+const PROTOCOL_HQ: Record<string, { lat: number; lon: number }> = {
+  // ─── CEX — Centralized Exchanges ───
+  'binance-cex':            { lat: 25.20,  lon: 55.27 },   // Dubai, UAE
+  'okx':                    { lat: 1.28,   lon: 103.85 },   // Singapore (ops HQ; reg. Seychelles)
+  'bitfinex':               { lat: 22.28,  lon: 114.17 },   // Hong Kong (iFinex ops; reg. BVI)
+  'bybit':                  { lat: 25.20,  lon: 55.30 },   // Dubai, UAE
+  'bitget':                 { lat: 1.30,   lon: 103.82 },   // Singapore (ops HQ; reg. Seychelles)
+  'htx':                    { lat: 1.35,   lon: 103.82 },   // Singapore (formerly Huobi)
+  'gate':                   { lat: 22.32,  lon: 114.17 },   // Hong Kong (ops; reg. Cayman)
+  'mexc':                   { lat: 1.30,   lon: 103.85 },   // Singapore
+  'deribit':                { lat: 52.08,  lon: 5.12 },     // Utrecht, Netherlands
+  'kucoin':                 { lat: 1.27,   lon: 103.84 },   // Singapore (ops; reg. Seychelles)
+  'hashkey-exchange':       { lat: 22.28,  lon: 114.16 },   // Hong Kong
+  'bitkub':                 { lat: 13.76,  lon: 100.50 },   // Bangkok, Thailand
+  'bitstamp':               { lat: 49.61,  lon: 6.13 },     // Luxembourg City (EU HQ)
+  'bitmex':                 { lat: 47.37,  lon: 8.55 },     // Zurich, Switzerland (ops; reg. Seychelles)
+  'swissborg':              { lat: 46.52,  lon: 6.63 },     // Lausanne, Switzerland
+  'bingx':                  { lat: 1.29,   lon: 103.85 },   // Singapore
+  'osl-hk':                 { lat: 22.28,  lon: 114.17 },   // Hong Kong
+  'indodax':                { lat: -6.21,  lon: 106.85 },   // Jakarta, Indonesia
+  'phemex':                 { lat: 1.30,   lon: 103.84 },   // Singapore
+  'backpack':               { lat: 1.35,   lon: 103.82 },   // Singapore (Armani Ferrante)
+
+  // ─── Liquid Staking ───
+  'lido':                   { lat: 47.37,  lon: 8.54 },     // Zurich, Switzerland (Lido DAO)
+  'doublezero-staked-sol':  { lat: 30.27,  lon: -97.74 },   // Austin, TX (Jump/DoubleZero team)
+  'jito-liquid-staking':    { lat: 40.75,  lon: -73.99 },   // New York (Jito Labs)
+  'sanctum-validator-lsts': { lat: 1.30,   lon: 103.82 },   // Singapore (Sanctum)
+  'jupiter-staked-sol':     { lat: 1.35,   lon: 103.87 },   // Singapore (Jupiter / Meow)
+  'binance-staked-sol':     { lat: 25.20,  lon: 55.25 },   // Dubai (Binance)
+  'marinade-liquid-staking':{ lat: 50.08,  lon: 14.43 },   // Prague, Czech Republic
+
+  // ─── RWA ───
+  'blackrock-buidl':        { lat: 40.76,  lon: -73.97 },   // New York (BlackRock 50 Hudson Yards)
+  'ondo-yield-assets':      { lat: 40.76,  lon: -73.98 },   // New York (Ondo Finance)
+  'superstate-ustb':        { lat: 37.78,  lon: -122.41 },  // San Francisco
+  'ondo-global-markets':    { lat: 40.76,  lon: -73.96 },   // New York (Ondo Finance)
+  'hastra':                 { lat: 25.20,  lon: 55.28 },    // Dubai
+
+  // ─── Lending ───
+  'maple':                  { lat: -33.87, lon: 151.21 },   // Sydney, Australia
+  'kamino-lend':            { lat: 38.72,  lon: -9.14 },    // Lisbon, Portugal (Kamino team)
+  'jupiter-lend':           { lat: 1.35,   lon: 103.85 },   // Singapore (Jupiter)
+
+  // ─── Risk Curators ───
+  'sentora':                { lat: 37.78,  lon: -122.40 },  // San Francisco (formerly Solend)
+  'gauntlet':               { lat: 40.75,  lon: -74.00 },   // New York
+
+  // ─── Bridge ───
+  'portal':                 { lat: 37.79,  lon: -122.40 },  // San Francisco (Wormhole/xLabs)
+  'solvbtc':                { lat: 1.30,   lon: 103.83 },   // Singapore (Solv Protocol)
+  'aster-bridge':           { lat: 35.68,  lon: 139.69 },   // Tokyo, Japan (Astar Network)
+  'unit':                   { lat: 51.51,  lon: -0.12 },    // London
+
+  // ─── Dexes ───
+  'raydium-amm':            { lat: 1.30,   lon: 103.85 },   // Singapore
+  'pancakeswap-amm-v3':     { lat: 1.35,   lon: 103.82 },   // Singapore
+  'meteora-dlmm':           { lat: 1.32,   lon: 103.80 },   // Singapore (Ben Chow)
+  'orca-dex':               { lat: 47.61,  lon: -122.33 },  // Seattle, WA
+
+  // ─── Derivatives ───
+  'jupiter-perpetual-exchange': { lat: 1.35, lon: 103.82 }, // Singapore (Jupiter / Meow)
+  'drift-trade':            { lat: -33.86, lon: 151.21 },   // Sydney, Australia
+
+  // ─── Liquid Restaking ───
+  'renzo':                  { lat: 37.78,  lon: -122.39 },  // San Francisco
+
+  // ─── Basis Trading ───
+  'solstice-usx':           { lat: 1.30,   lon: 103.82 },   // Singapore
+  'bouncebit-cedefi-yield': { lat: 1.35,   lon: 103.85 },   // Singapore
+};
+
+// Assign coordinates: use real HQ if known, else spread by category fallback
+function assignCategoryPosition(protocols: Array<{ name: string; slug: string; tvl: number; change24h: number; change7d: number; category: string }>): DeFiBubble[] {
+  // Track per-city overlap to nudge colliding pins
+  const cityHits = new Map<string, number>();
+
+  return protocols.map(p => {
+    const hq = PROTOCOL_HQ[p.slug];
+    let lat: number, lon: number;
+
+    if (hq) {
+      // Real HQ — add tiny jitter if multiple protocols share same city
+      const cityKey = `${Math.round(hq.lat)},${Math.round(hq.lon)}`;
+      const idx = cityHits.get(cityKey) || 0;
+      cityHits.set(cityKey, idx + 1);
+      const angle = idx * 137.508 * (Math.PI / 180);
+      const r = idx * 0.35; // ~0.35° per extra protocol in same city
+      lat = hq.lat + r * Math.sin(angle);
+      lon = hq.lon + r * Math.cos(angle);
+    } else {
+      // Unknown protocol — place in ocean by category hash to avoid land overlap
+      const hash = p.name.split('').reduce((h, c) => h + c.charCodeAt(0), 0);
+      lat = -20 + (hash % 30);          // -20 to +10 (South Pacific)
+      lon = -160 + ((hash * 7) % 40);   // -160 to -120
+    }
+
+    return {
+      name: p.name,
+      slug: p.slug,
+      lat,
+      lon,
+      tvl: p.tvl,
+      change24h: p.change24h,
+      change7d: p.change7d,
+      category: p.category,
+    };
+  });
+}
 
 let defiLocationsCache: DeFiBubble[] | null = null;
 let defiCacheTs = 0;
@@ -105,133 +220,60 @@ async function fetchDefiLocations(): Promise<DeFiBubble[]> {
   const now = Date.now();
   if (defiLocationsCache && now - defiCacheTs < 300_000) return defiLocationsCache;
 
-  const tvlMap = new Map<string, { tvl: number; change24h: number }>();
+  try {
+    // Use proxy to avoid CORS
+    const res = await fetch('/api/defi-data', { signal: AbortSignal.timeout(12000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.protocols && data.protocols.length > 0) {
+        const protocols = data.protocols.map((p: any) => ({
+          name: p.name,
+          slug: p.slug || '',
+          tvl: p.tvl || 0,
+          change24h: p.change24h || 0,
+          change7d: p.change7d || 0,
+          category: p.category || 'Other',
+        }));
+        const locations = assignCategoryPosition(protocols);
+        defiLocationsCache = locations;
+        defiCacheTs = now;
+        console.log(`[DeFi] Loaded ${locations.length} protocols from proxy`);
+        return locations;
+      }
+    }
+  } catch (e) {
+    console.warn('[DeFi] Proxy fetch failed:', (e as Error).message);
+  }
+
+  // Fallback: direct fetch (may fail due to CORS)
   try {
     const res = await fetch('https://api.llama.fi/protocols', { signal: AbortSignal.timeout(8000) });
     if (res.ok) {
-      const protocols: Array<{ name: string; slug: string; tvl?: number; change_1d?: number; chains?: string[] }> = await res.json();
-      for (const p of protocols) {
-        if (p.chains?.includes('Solana') || p.chains?.includes('solana')) {
-          tvlMap.set(p.slug?.toLowerCase() || p.name.toLowerCase(), {
-            tvl: p.tvl || 0,
-            change24h: p.change_1d || 0,
-          });
-        }
-      }
+      const allProtocols: any[] = await res.json();
+      const solana = allProtocols
+        .filter(p => p.chains?.includes('Solana'))
+        .sort((a, b) => (b.tvl || 0) - (a.tvl || 0))
+        .slice(0, 50)
+        .map(p => ({
+          name: p.name,
+          slug: p.slug || '',
+          tvl: p.tvl || 0,
+          change24h: p.change_1d || 0,
+          change7d: p.change_7d || 0,
+          category: p.category || 'Other',
+        }));
+      const locations = assignCategoryPosition(solana);
+      defiLocationsCache = locations;
+      defiCacheTs = now;
+      console.log(`[DeFi] Loaded ${locations.length} protocols (direct)`);
+      return locations;
     }
   } catch {
-    // Use zeros
+    // Both paths failed
   }
 
-  const locations: DeFiBubble[] = DEFI_PROTOCOL_COORDS.map(coord => {
-    const data = tvlMap.get(coord.slug) || tvlMap.get(coord.name.toLowerCase());
-    return {
-      name: coord.name,
-      lat: coord.lat,
-      lon: coord.lon,
-      tvl: data?.tvl || 0,
-      change24h: data?.change24h || 0,
-      category: coord.category,
-    };
-  });
-
-  defiLocationsCache = locations;
-  defiCacheTs = now;
-  return locations;
-}
-
-// ── Flow arc generator — builds arcs from real whale transaction data ────────
-// Maps known wallet labels to geographic coordinates of exchanges/protocols
-const ENTITY_LOCATIONS: Record<string, { lat: number; lon: number }> = {
-  'Binance Hot': { lat: 1.3521, lon: 103.8198 },
-  'Binance': { lat: 1.3521, lon: 103.8198 },
-  'Coinbase': { lat: 37.7749, lon: -122.4194 },
-  'Coinbase Prime': { lat: 37.7749, lon: -122.4194 },
-  'Kraken': { lat: 37.7749, lon: -122.3000 },
-  'FTX Estate': { lat: 25.0343, lon: -77.3963 },
-  'Jupiter': { lat: 1.3521, lon: 103.8198 },
-  'Raydium': { lat: 22.3193, lon: 114.1694 },
-  'Raydium CLMM': { lat: 22.3193, lon: 114.1694 },
-  'Orca': { lat: 47.6062, lon: -122.3321 },
-  'Meteora': { lat: 3.1390, lon: 101.6869 },
-  'OpenBook': { lat: 37.7749, lon: -122.4194 },
-  'Marinade Finance': { lat: 48.2082, lon: 16.3738 },
-  'Marinade mSOL': { lat: 48.2082, lon: 16.3738 },
-  'Jito SOL': { lat: 40.7128, lon: -74.0060 },
-  'Kamino Finance': { lat: 51.5074, lon: -0.1278 },
-  'MarginFi': { lat: 37.7749, lon: -122.4194 },
-  'Drift Protocol': { lat: -33.8688, lon: 151.2093 },
-  'Wintermute': { lat: 51.5074, lon: -0.1278 },
-  'Jump Trading': { lat: 41.8781, lon: -87.6298 },
-  'Alameda': { lat: 22.3193, lon: 114.1694 },
-  'BlazeStake bSOL': { lat: 40.7128, lon: -74.0060 },
-};
-
-function generateFlowArcsFromWhales(whales: WhaleTransaction[]): FlowArc[] {
-  if (whales.length === 0) return generateFallbackFlowArcs();
-
-  const arcs: FlowArc[] = [];
-  const seen = new Set<string>();
-
-  for (const tx of whales) {
-    const sourceLoc = ENTITY_LOCATIONS[tx.walletLabel] || ENTITY_LOCATIONS[tx.counterpartyLabel];
-    const targetLoc = ENTITY_LOCATIONS[tx.counterpartyLabel] || ENTITY_LOCATIONS[tx.walletLabel];
-
-    if (!sourceLoc || !targetLoc) continue;
-    // Skip same-location arcs
-    if (sourceLoc.lat === targetLoc.lat && sourceLoc.lon === targetLoc.lon) continue;
-
-    const key = `${tx.walletLabel}-${tx.counterpartyLabel}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    const color = tx.severity === 'critical' ? COLORS.red
-      : tx.severity === 'high' ? COLORS.gold
-      : tx.severity === 'medium' ? COLORS.orange
-      : COLORS.solanaGreen;
-
-    arcs.push({
-      id: `whale-${arcs.length}`,
-      sourceLat: tx.direction === 'out' ? sourceLoc.lat : targetLoc.lat,
-      sourceLon: tx.direction === 'out' ? sourceLoc.lon : targetLoc.lon,
-      targetLat: tx.direction === 'out' ? targetLoc.lat : sourceLoc.lat,
-      targetLon: tx.direction === 'out' ? targetLoc.lon : sourceLoc.lon,
-      amount: tx.amountUsd,
-      color,
-      label: `${tx.walletLabel} → ${tx.counterpartyLabel} ($${(tx.amountUsd / 1000).toFixed(0)}K)`,
-    });
-
-    if (arcs.length >= 15) break;
-  }
-
-  // If we found some real arcs, return them; otherwise use fallback routes
-  return arcs.length > 0 ? arcs : generateFallbackFlowArcs();
-}
-
-// Fallback: static routes shown when no whale data available yet
-function generateFallbackFlowArcs(): FlowArc[] {
-  const routes: Array<{
-    from: { name: string; lat: number; lon: number };
-    to: { name: string; lat: number; lon: number };
-    color: [number, number, number];
-  }> = [
-    { from: { name: 'Binance', lat: 1.3521, lon: 103.8198 }, to: { name: 'Coinbase', lat: 37.7749, lon: -122.4194 }, color: COLORS.gold },
-    { from: { name: 'Jupiter', lat: 1.3521, lon: 103.8198 }, to: { name: 'Raydium', lat: 22.3193, lon: 114.1694 }, color: COLORS.solanaGreen },
-    { from: { name: 'Jito Stake', lat: 40.7128, lon: -74.0060 }, to: { name: 'DeFi EU', lat: 51.5074, lon: -0.1278 }, color: COLORS.orange },
-    { from: { name: 'DeFi Asia', lat: 35.6762, lon: 139.6503 }, to: { name: 'DeFi EU', lat: 50.1109, lon: 8.6821 }, color: COLORS.pink },
-    { from: { name: 'Marinade', lat: 48.2082, lon: 16.3738 }, to: { name: 'Jito Stake', lat: 40.7128, lon: -74.0060 }, color: COLORS.solanaPurple },
-  ];
-
-  return routes.map((route, i) => ({
-    id: `flow-${i}`,
-    sourceLat: route.from.lat,
-    sourceLon: route.from.lon,
-    targetLat: route.to.lat,
-    targetLon: route.to.lon,
-    amount: 0,
-    color: route.color,
-    label: `${route.from.name} → ${route.to.name}`,
-  }));
+  console.warn('[DeFi] All fetch paths failed, returning empty');
+  return defiLocationsCache || [];
 }
 
 // ── MapLibre dark style (original worldmonitor basemap — CARTO dark_all) ────
@@ -277,15 +319,52 @@ export class SolanaDeckGlobe {
     validators: [],
     clusters: [],
     depinNodes: [],
-    flowArcs: [],
     defiBubbles: [], // populated by fetchDefiLocations()
   };
   private statsOverlay: HTMLElement;
   private legendOverlay: HTMLElement;
   private tooltipEl: HTMLElement;
+  private filterPanel: HTMLElement;
   private animationTimer: ReturnType<typeof setInterval> | null = null;
-  private flowPhase = 0;
   private isDestroyed = false;
+
+  // ── Validator filters ─────────────────────────────────────────────────
+  private showDelinquent = false;
+  private clientFilters: Record<string, boolean> = {
+    jito: true,
+    firedancer: true,
+    'solana-labs': true,
+    unknown: true,
+  };
+
+  // ── DePIN filters ─────────────────────────────────────────────────────
+  private showOfflineDePIN = false;
+  private depinNetworkFilters: Record<string, boolean> = {
+    'helium-iot': true,
+    'helium-mobile': true,
+    render: true,
+    ionet: true,
+    hivemapper: true,
+    grass: true,
+    geodnet: true,
+    nosana: true,
+    shadow: true,
+  };
+
+  // ── Risk filters ──────────────────────────────────────────────────────
+  private showRiskHeatmap = true;
+  private showRiskClusters = true;
+  private showRiskDelinquent = true;
+  private riskLevelFilters: Record<string, boolean> = {
+    safe: true,
+    warning: true,
+    'high-risk': true,
+  };
+
+  // ── DeFi filters ──────────────────────────────────────────────────────
+  private defiCategoryFilters: Record<string, boolean> = {};
+  private defiShowLabels = true;
+  private defiMinTvl = 0; // show all by default
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -299,8 +378,7 @@ export class SolanaDeckGlobe {
 
     // Stats overlay
     this.statsOverlay = document.createElement('div');
-    this.statsOverlay.className = 'deckgl-timestamp';
-    this.statsOverlay.style.cssText = 'top: auto; bottom: 10px; right: 10px; left: auto; transform: none; text-align: right; line-height: 1.6; font-size: 10px;';
+    this.statsOverlay.className = 'deckgl-stats-overlay';
     this.container.appendChild(this.statsOverlay);
 
     // Legend
@@ -313,6 +391,12 @@ export class SolanaDeckGlobe {
     this.tooltipEl.className = 'deckgl-tooltip';
     this.tooltipEl.style.cssText = 'position: absolute; display: none; pointer-events: none; z-index: 1000;';
     this.container.appendChild(this.tooltipEl);
+
+    // Filter panel (left side)
+    this.filterPanel = document.createElement('div');
+    this.filterPanel.className = 'deckgl-filter-panel';
+    this.container.appendChild(this.filterPanel);
+    this.buildFilterPanel();
 
     this.initMap();
     this.loadData();
@@ -355,17 +439,15 @@ export class SolanaDeckGlobe {
   // ── Load data for all modes ───────────────────────────────────────────────
   private async loadData(): Promise<void> {
     try {
-      const [validatorData, depinNodes, defiLocations, whaleData] = await Promise.all([
+      const [validatorData, depinNodes, defiLocations] = await Promise.all([
         fetchValidatorGeoData(),
         fetchDePINNodes(),
         fetchDefiLocations(),
-        fetchWhaleTransactions().catch(() => [] as WhaleTransaction[]),
       ]);
 
       this.data.validators = validatorData.validators;
       this.data.clusters = validatorData.clusters;
       this.data.depinNodes = depinNodes;
-      this.data.flowArcs = generateFlowArcsFromWhales(whaleData);
       this.data.defiBubbles = defiLocations;
 
       console.log(`[DeckGlobe] Data loaded: ${this.data.validators.length} validators, ${this.data.depinNodes.length} DePIN nodes`);
@@ -389,90 +471,433 @@ export class SolanaDeckGlobe {
     switch (mode) {
       case 'validators': return this.buildValidatorLayers();
       case 'depin': return this.buildDePINLayers();
-      case 'flow': return this.buildFlowLayers();
       case 'risk': return this.buildRiskLayers();
       case 'defi': return this.buildDeFiLayers();
       default: return this.buildValidatorLayers();
     }
   }
 
+  // ── Filter helpers ────────────────────────────────────────────────────────
+  private getFilteredValidators(): SolanaValidator[] {
+    return this.data.validators.filter(v => {
+      // Delinquent filter
+      if (v.delinquent && !this.showDelinquent) return false;
+      // Client type filter
+      const ct = v.clientType || 'unknown';
+      if (!this.clientFilters[ct]) return false;
+      return true;
+    });
+  }
+
+  // ── Build filter panel (left side) ────────────────────────────────────────
+  private buildFilterPanel(): void {
+    if (this.currentMode === 'depin') {
+      this.buildDePINFilterPanel();
+    } else if (this.currentMode === 'risk') {
+      this.buildRiskFilterPanel();
+    } else if (this.currentMode === 'defi') {
+      this.buildDeFiFilterPanel();
+    } else {
+      this.buildValidatorFilterPanel();
+    }
+  }
+
+  private buildValidatorFilterPanel(): void {
+    const clientItems = [
+      { key: 'jito', label: 'Jito', color: '#FFA500', icon: '●' },
+      { key: 'firedancer', label: 'Firedancer', color: '#00D1FF', icon: '●' },
+      { key: 'solana-labs', label: 'Agave', color: '#14F195', icon: '●' },
+      { key: 'unknown', label: 'Unknown', color: '#888', icon: '●' },
+    ];
+
+    this.filterPanel.innerHTML = `
+      <div class="filter-title">FILTERS</div>
+      <div class="filter-section">
+        <div class="filter-section-label">Client Type</div>
+        ${clientItems.map(c => `
+          <label class="filter-toggle" data-filter="client" data-key="${c.key}">
+            <input type="checkbox" ${this.clientFilters[c.key] ? 'checked' : ''} />
+            <span class="filter-dot" style="color:${c.color}">${c.icon}</span>
+            <span class="filter-label">${c.label}</span>
+            <span class="filter-count" id="filter-count-${c.key}">0</span>
+          </label>
+        `).join('')}
+      </div>
+      <div class="filter-section">
+        <div class="filter-section-label">Status</div>
+        <label class="filter-toggle" data-filter="delinquent">
+          <input type="checkbox" ${this.showDelinquent ? 'checked' : ''} />
+          <span class="filter-dot" style="color:#FF5050">●</span>
+          <span class="filter-label">Include Delinquent</span>
+          <span class="filter-count" id="filter-count-delinquent">0</span>
+        </label>
+      </div>
+    `;
+
+    // Wire up events
+    this.filterPanel.querySelectorAll('label.filter-toggle').forEach(label => {
+      const input = label.querySelector('input') as HTMLInputElement;
+      const filterType = label.getAttribute('data-filter');
+      input.addEventListener('change', () => {
+        if (filterType === 'client') {
+          const key = label.getAttribute('data-key')!;
+          this.clientFilters[key] = input.checked;
+        } else if (filterType === 'delinquent') {
+          this.showDelinquent = input.checked;
+        }
+        this.updateLayers();
+      });
+    });
+  }
+
+  private buildDePINFilterPanel(): void {
+    const networkItems = [
+      { key: 'helium-iot', label: 'Helium IoT', color: '#14F195' },
+      { key: 'helium-mobile', label: 'Helium Mobile', color: '#00FFC8' },
+      { key: 'render', label: 'Render', color: '#FF69B4' },
+      { key: 'ionet', label: 'io.net', color: '#00D1FF' },
+      { key: 'hivemapper', label: 'Hivemapper', color: '#FFD700' },
+      { key: 'grass', label: 'Grass', color: '#78FF50' },
+      { key: 'geodnet', label: 'Geodnet', color: '#FFA500' },
+      { key: 'nosana', label: 'Nosana', color: '#B464FF' },
+      { key: 'shadow', label: 'Shadow', color: '#C8C8DC' },
+    ];
+
+    this.filterPanel.innerHTML = `
+      <div class="filter-title">DePIN FILTERS</div>
+      <div class="filter-section">
+        <div class="filter-section-label">Networks</div>
+        ${networkItems.map(n => `
+          <label class="filter-toggle" data-filter="depin-network" data-key="${n.key}">
+            <input type="checkbox" ${this.depinNetworkFilters[n.key] ? 'checked' : ''} />
+            <span class="filter-dot" style="color:${n.color}">●</span>
+            <span class="filter-label">${n.label}</span>
+            <span class="filter-count" id="filter-count-depin-${n.key}">0</span>
+          </label>
+        `).join('')}
+      </div>
+      <div class="filter-section">
+        <div class="filter-section-label">Status</div>
+        <label class="filter-toggle" data-filter="depin-offline">
+          <input type="checkbox" ${this.showOfflineDePIN ? 'checked' : ''} />
+          <span class="filter-dot" style="color:#FF5050">●</span>
+          <span class="filter-label">Include Offline</span>
+          <span class="filter-count" id="filter-count-depin-offline">0</span>
+        </label>
+      </div>
+    `;
+
+    // Wire up events
+    this.filterPanel.querySelectorAll('label.filter-toggle').forEach(label => {
+      const input = label.querySelector('input') as HTMLInputElement;
+      const filterType = label.getAttribute('data-filter');
+      input.addEventListener('change', () => {
+        if (filterType === 'depin-network') {
+          const key = label.getAttribute('data-key')!;
+          this.depinNetworkFilters[key] = input.checked;
+        } else if (filterType === 'depin-offline') {
+          this.showOfflineDePIN = input.checked;
+        }
+        this.updateLayers();
+      });
+    });
+  }
+
+  private updateFilterCounts(): void {
+    const all = this.data.validators;
+    // Client counts (among visible = respecting delinquent toggle)
+    const visibleBase = this.showDelinquent ? all : all.filter(v => !v.delinquent);
+    const counts: Record<string, number> = { jito: 0, firedancer: 0, 'solana-labs': 0, unknown: 0 };
+    for (const v of visibleBase) {
+      const ct = v.clientType || 'unknown';
+      counts[ct] = (counts[ct] || 0) + 1;
+    }
+    for (const key of Object.keys(counts)) {
+      const el = this.filterPanel.querySelector(`#filter-count-${key}`);
+      if (el) el.textContent = String(counts[key]);
+    }
+    // Delinquent count
+    const delEl = this.filterPanel.querySelector('#filter-count-delinquent');
+    if (delEl) delEl.textContent = String(all.filter(v => v.delinquent).length);
+  }
+
+  private updateDePINFilterCounts(): void {
+    const allDepin = this.data.depinNodes;
+    const netCounts: Record<string, number> = {};
+    let offlineCount = 0;
+    for (const n of allDepin) {
+      if (n.status === 'offline') { offlineCount++; continue; }
+      netCounts[n.network] = (netCounts[n.network] || 0) + 1;
+    }
+    for (const key of Object.keys(this.depinNetworkFilters)) {
+      const el = this.filterPanel.querySelector(`#filter-count-depin-${key}`);
+      if (el) el.textContent = String(netCounts[key] || 0);
+    }
+    const offEl = this.filterPanel.querySelector('#filter-count-depin-offline');
+    if (offEl) offEl.textContent = String(offlineCount);
+  }
+
+  // ── Risk filter panel ─────────────────────────────────────────────────────
+  private buildRiskFilterPanel(): void {
+    const riskItems = [
+      { key: 'safe', label: 'Safe (<3%)', color: '#14F195' },
+      { key: 'warning', label: 'Warning (3-10%)', color: '#FFD700' },
+      { key: 'high-risk', label: 'High Risk (>10%)', color: '#FF5050' },
+    ];
+
+    this.filterPanel.innerHTML = `
+      <div class="filter-title">RISK FILTERS</div>
+      <div class="filter-section">
+        <div class="filter-section-label">Risk Level</div>
+        ${riskItems.map(r => `
+          <label class="filter-toggle" data-filter="risk-level" data-key="${r.key}">
+            <input type="checkbox" ${this.riskLevelFilters[r.key] ? 'checked' : ''} />
+            <span class="filter-dot" style="color:${r.color}">●</span>
+            <span class="filter-label">${r.label}</span>
+            <span class="filter-count" id="filter-count-risk-${r.key}">0</span>
+          </label>
+        `).join('')}
+      </div>
+      <div class="filter-section">
+        <div class="filter-section-label">Layers</div>
+        <label class="filter-toggle" data-filter="risk-heatmap">
+          <input type="checkbox" ${this.showRiskHeatmap ? 'checked' : ''} />
+          <span class="filter-dot" style="color:#FF8800">◉</span>
+          <span class="filter-label">Heatmap</span>
+        </label>
+        <label class="filter-toggle" data-filter="risk-clusters">
+          <input type="checkbox" ${this.showRiskClusters ? 'checked' : ''} />
+          <span class="filter-dot" style="color:#FFD700">●</span>
+          <span class="filter-label">Cluster Markers</span>
+        </label>
+        <label class="filter-toggle" data-filter="risk-delinquent">
+          <input type="checkbox" ${this.showRiskDelinquent ? 'checked' : ''} />
+          <span class="filter-dot" style="color:#FF0000">●</span>
+          <span class="filter-label">Delinquent</span>
+          <span class="filter-count" id="filter-count-risk-delinquent">0</span>
+        </label>
+      </div>
+    `;
+
+    // Wire up events
+    this.filterPanel.querySelectorAll('label.filter-toggle').forEach(label => {
+      const input = label.querySelector('input') as HTMLInputElement;
+      const filterType = label.getAttribute('data-filter');
+      input.addEventListener('change', () => {
+        if (filterType === 'risk-level') {
+          const key = label.getAttribute('data-key')!;
+          this.riskLevelFilters[key] = input.checked;
+        } else if (filterType === 'risk-heatmap') {
+          this.showRiskHeatmap = input.checked;
+        } else if (filterType === 'risk-clusters') {
+          this.showRiskClusters = input.checked;
+        } else if (filterType === 'risk-delinquent') {
+          this.showRiskDelinquent = input.checked;
+        }
+        this.updateLayers();
+      });
+    });
+  }
+
+  private updateRiskFilterCounts(): void {
+    const clusters = this.data.clusters.filter(c => c.count >= 3);
+    let safe = 0, warning = 0, highRisk = 0;
+    for (const c of clusters) {
+      if (c.stakeConcentration > 0.10) highRisk++;
+      else if (c.stakeConcentration > 0.03) warning++;
+      else safe++;
+    }
+    const safeEl = this.filterPanel.querySelector('#filter-count-risk-safe');
+    if (safeEl) safeEl.textContent = String(safe);
+    const warnEl = this.filterPanel.querySelector('#filter-count-risk-warning');
+    if (warnEl) warnEl.textContent = String(warning);
+    const hrEl = this.filterPanel.querySelector('#filter-count-risk-high-risk');
+    if (hrEl) hrEl.textContent = String(highRisk);
+    const delEl = this.filterPanel.querySelector('#filter-count-risk-delinquent');
+    if (delEl) delEl.textContent = String(this.data.validators.filter(v => v.delinquent).length);
+  }
+
+  // ── Risk cluster filter helper ───────────────────────────────────────────
+  private getFilteredRiskClusters(): ValidatorCluster[] {
+    return this.data.clusters.filter(c => {
+      if (c.count < 3) return false;
+      if (c.stakeConcentration > 0.10) return this.riskLevelFilters['high-risk'];
+      if (c.stakeConcentration > 0.03) return this.riskLevelFilters['warning'];
+      return this.riskLevelFilters['safe'];
+    });
+  }
+
+  // ── DeFi filter panel ─────────────────────────────────────────────────────
+  private buildDeFiFilterPanel(): void {
+    // Discover categories from loaded data
+    const cats = new Set<string>();
+    for (const d of this.data.defiBubbles) cats.add(d.category);
+    const catList = [...cats].sort();
+
+    // Initialize category filters on first load (all enabled)
+    if (Object.keys(this.defiCategoryFilters).length === 0) {
+      for (const c of catList) this.defiCategoryFilters[c] = true;
+    }
+    // Also enable any new categories
+    for (const c of catList) {
+      if (this.defiCategoryFilters[c] === undefined) this.defiCategoryFilters[c] = true;
+    }
+
+    const catItems = catList.map(cat => {
+      return { key: cat, label: cat, color: CATEGORY_COLORS[cat] || DEFAULT_CAT_COLOR };
+    });
+
+    this.filterPanel.innerHTML = `
+      <div class="filter-title">DeFi FILTERS</div>
+      <div class="filter-section">
+        <div class="filter-section-label">Categories</div>
+        ${catItems.map(c => `
+          <label class="filter-toggle" data-filter="defi-cat" data-key="${c.key}">
+            <input type="checkbox" ${this.defiCategoryFilters[c.key] ? 'checked' : ''} />
+            <span class="filter-dot" style="color:${c.color}">●</span>
+            <span class="filter-label">${c.label}</span>
+            <span class="filter-count" id="filter-count-defi-${c.key.replace(/\s+/g, '-')}">0</span>
+          </label>
+        `).join('')}
+      </div>
+      <div class="filter-section">
+        <div class="filter-section-label">Display</div>
+        <label class="filter-toggle" data-filter="defi-labels">
+          <input type="checkbox" ${this.defiShowLabels ? 'checked' : ''} />
+          <span class="filter-dot" style="color:#ffffff">A</span>
+          <span class="filter-label">Protocol Labels</span>
+        </label>
+      </div>
+    `;
+
+    // Wire up events
+    this.filterPanel.querySelectorAll('label.filter-toggle').forEach(label => {
+      const input = label.querySelector('input') as HTMLInputElement;
+      const filterType = label.getAttribute('data-filter');
+      input.addEventListener('change', () => {
+        if (filterType === 'defi-cat') {
+          const key = label.getAttribute('data-key')!;
+          this.defiCategoryFilters[key] = input.checked;
+        } else if (filterType === 'defi-labels') {
+          this.defiShowLabels = input.checked;
+        }
+        this.updateLayers();
+      });
+    });
+  }
+
+  private updateDeFiFilterCounts(): void {
+    const all = this.data.defiBubbles;
+    const catCounts: Record<string, number> = {};
+    for (const d of all) {
+      catCounts[d.category] = (catCounts[d.category] || 0) + 1;
+    }
+    for (const cat of Object.keys(this.defiCategoryFilters)) {
+      const el = this.filterPanel.querySelector(`#filter-count-defi-${cat.replace(/\s+/g, '-')}`);
+      if (el) el.textContent = String(catCounts[cat] || 0);
+    }
+  }
+
+  // ── DeFi filter helper ────────────────────────────────────────────────────
+  private getFilteredDeFiBubbles(): DeFiBubble[] {
+    return this.data.defiBubbles.filter(d => {
+      if (!this.defiCategoryFilters[d.category]) return false;
+      if (d.tvl < this.defiMinTvl) return false;
+      return true;
+    });
+  }
+
+  // ── DePIN filter helper ──────────────────────────────────────────────────
+  private getFilteredDePINNodes(): DePINNode[] {
+    return this.data.depinNodes.filter(n => {
+      // Network filter
+      if (!this.depinNetworkFilters[n.network]) return false;
+      // Offline filter
+      if (n.status === 'offline' && !this.showOfflineDePIN) return false;
+      return true;
+    });
+  }
+
   // ── MODE 1: VALIDATORS ────────────────────────────────────────────────────
   private buildValidatorLayers(): Layer[] {
     const layers: Layer[] = [];
+    const filtered = this.getFilteredValidators();
+    const activeFiltered = filtered.filter(v => !v.delinquent);
 
-    // Stake heatmap
-    if (this.data.validators.length > 0) {
+    // Stake heatmap — subtle background glow showing concentration
+    if (activeFiltered.length > 0) {
       layers.push(
         new HeatmapLayer({
           id: 'validator-heatmap',
-          data: this.data.validators.filter(v => !v.delinquent),
+          data: activeFiltered,
           getPosition: (d: SolanaValidator) => [d.lon!, d.lat!],
-          getWeight: (d: SolanaValidator) => Math.sqrt(d.activatedStake) / 500,
-          radiusPixels: 50,
-          intensity: 1.5,
-          threshold: 0.05,
+          getWeight: (d: SolanaValidator) => Math.sqrt(d.activatedStake) / 800,
+          radiusPixels: 35,
+          intensity: 0.8,
+          threshold: 0.08,
           colorRange: [
-            [20, 241, 149, 25],   // dim green
-            [20, 241, 149, 80],
-            [153, 69, 255, 120],  // purple mid
-            [255, 215, 0, 180],   // gold high
-            [255, 80, 80, 220],   // red concentration
+            [20, 241, 149, 15],   // barely visible green
+            [20, 241, 149, 40],
+            [153, 69, 255, 70],   // purple mid
+            [255, 215, 0, 100],   // gold high
+            [255, 80, 80, 140],   // red concentration
           ],
-          opacity: 0.6,
+          opacity: 0.35,
         })
       );
     }
 
-    // Validator dots (colored by client type)
+    // Validator dots — small, clean pinpoints colored by client type
     layers.push(
       new ScatterplotLayer({
         id: 'validator-dots',
-        data: this.data.validators,
+        data: filtered,
         getPosition: (d: SolanaValidator) => [d.lon!, d.lat!],
         getRadius: (d: SolanaValidator) => {
-          const base = Math.sqrt(d.activatedStake) / 80;
-          return Math.max(3, Math.min(base, 25));
+          const base = Math.log10(Math.max(d.activatedStake, 1) + 1) * 0.8;
+          return Math.max(1.5, Math.min(base, 6));
         },
         getFillColor: (d: SolanaValidator) => {
-          if (d.delinquent) return [...COLORS.red, 200] as [number, number, number, number];
+          if (d.delinquent) return [...COLORS.red, 220] as [number, number, number, number];
           switch (d.clientType) {
-            case 'jito': return [...COLORS.jito, 180] as [number, number, number, number];
-            case 'firedancer': return [...COLORS.cyan, 200] as [number, number, number, number];
-            default: return [...COLORS.solanaGreen, 160] as [number, number, number, number];
+            case 'jito': return [...COLORS.jito, 200] as [number, number, number, number];
+            case 'firedancer': return [...COLORS.cyan, 220] as [number, number, number, number];
+            default: return [...COLORS.solanaGreen, 180] as [number, number, number, number];
           }
         },
-        getLineColor: (d: SolanaValidator) =>
-          d.delinquent ? [255, 0, 0, 255] : [255, 255, 255, 40],
-        lineWidthMinPixels: 0.5,
+        getLineColor: [255, 255, 255, 20],
+        lineWidthMinPixels: 0.3,
         stroked: true,
         radiusUnits: 'pixels' as const,
-        radiusMinPixels: 2,
-        radiusMaxPixels: 30,
+        radiusMinPixels: 1.5,
+        radiusMaxPixels: 8,
         pickable: true,
         onHover: (info: { object?: SolanaValidator; x?: number; y?: number }) => this.handleHover(info),
         autoHighlight: true,
-        highlightColor: [255, 255, 255, 80],
+        highlightColor: [255, 255, 255, 100],
       })
     );
 
-    // Delinquent pulse ring
-    const delinquent = this.data.validators.filter(v => v.delinquent);
-    if (delinquent.length > 0) {
-      const pulseSize = 1 + Math.sin(this.flowPhase * 3) * 0.3;
-      layers.push(
-        new ScatterplotLayer({
-          id: 'delinquent-pulse',
-          data: delinquent,
-          getPosition: (d: SolanaValidator) => [d.lon!, d.lat!],
-          getRadius: () => 12 * pulseSize,
-          getFillColor: [255, 0, 0, 0],
-          getLineColor: [255, 80, 80, 120],
-          lineWidthMinPixels: 2,
-          stroked: true,
-          filled: false,
-          radiusUnits: 'pixels' as const,
-        })
-      );
+    // Delinquent pulse ring — only when delinquent filter is on
+    if (this.showDelinquent) {
+      const delinquent = filtered.filter(v => v.delinquent);
+      if (delinquent.length > 0) {
+        const pulseSize = 1 + Math.sin(Date.now() / 300) * 0.25;
+        layers.push(
+          new ScatterplotLayer({
+            id: 'delinquent-pulse',
+            data: delinquent,
+            getPosition: (d: SolanaValidator) => [d.lon!, d.lat!],
+            getRadius: () => 5 * pulseSize,
+            getFillColor: [255, 0, 0, 0],
+            getLineColor: [255, 80, 80, 80],
+            lineWidthMinPixels: 1,
+            stroked: true,
+            filled: false,
+            radiusUnits: 'pixels' as const,
+          })
+        );
+      }
     }
 
     return layers;
@@ -481,44 +906,44 @@ export class SolanaDeckGlobe {
   // ── MODE 2: DePIN ─────────────────────────────────────────────────────────
   private buildDePINLayers(): Layer[] {
     const layers: Layer[] = [];
+    const filtered = this.getFilteredDePINNodes();
 
     const networkColor = (n: DePINNode): [number, number, number, number] => {
       const alpha = n.status === 'active' ? 180 : n.status === 'relay' ? 100 : 50;
-      switch (n.network) {
-        case 'helium': return [...COLORS.helium, alpha];
-        case 'render': return [...COLORS.render, alpha];
-        case 'ionet': return [...COLORS.ionet, alpha];
-        case 'hivemapper': return [...COLORS.hivemapper, alpha];
-        default: return [...COLORS.white, alpha];
-      }
+      const colorKey = n.network as keyof typeof COLORS;
+      const rgb = COLORS[colorKey] || COLORS.white;
+      return [...rgb, alpha];
     };
 
-    // DePIN heatmap (density)
-    layers.push(
-      new HeatmapLayer({
-        id: 'depin-heatmap',
-        data: this.data.depinNodes.filter(n => n.status === 'active'),
-        getPosition: (d: DePINNode) => [d.lon, d.lat],
-        getWeight: () => 1,
-        radiusPixels: 40,
-        intensity: 2,
-        threshold: 0.03,
-        colorRange: [
-          [20, 241, 149, 20],
-          [20, 241, 149, 60],
-          [0, 209, 255, 100],
-          [153, 69, 255, 150],
-          [255, 105, 180, 200],
-        ],
-        opacity: 0.4,
-      })
-    );
+    // DePIN heatmap (density) — only active filtered nodes
+    const activeFiltered = filtered.filter(n => n.status === 'active');
+    if (activeFiltered.length > 0) {
+      layers.push(
+        new HeatmapLayer({
+          id: 'depin-heatmap',
+          data: activeFiltered,
+          getPosition: (d: DePINNode) => [d.lon, d.lat],
+          getWeight: () => 1,
+          radiusPixels: 40,
+          intensity: 2,
+          threshold: 0.03,
+          colorRange: [
+            [20, 241, 149, 20],
+            [20, 241, 149, 60],
+            [0, 209, 255, 100],
+            [153, 69, 255, 150],
+            [255, 105, 180, 200],
+          ],
+          opacity: 0.4,
+        })
+      );
+    }
 
-    // Individual nodes
+    // Individual nodes — filtered
     layers.push(
       new ScatterplotLayer({
         id: 'depin-nodes',
-        data: this.data.depinNodes,
+        data: filtered,
         getPosition: (d: DePINNode) => [d.lon, d.lat],
         getRadius: (d: DePINNode) => {
           if (d.status === 'offline') return 2;
@@ -538,140 +963,81 @@ export class SolanaDeckGlobe {
     return layers;
   }
 
-  // ── MODE 3: FLOW ──────────────────────────────────────────────────────────
-  private buildFlowLayers(): Layer[] {
-    const layers: Layer[] = [];
-
-    // Flow arcs
-    layers.push(
-      new ArcLayer({
-        id: 'flow-arcs',
-        data: this.data.flowArcs,
-        getSourcePosition: (d: FlowArc) => [d.sourceLon, d.sourceLat],
-        getTargetPosition: (d: FlowArc) => [d.targetLon, d.targetLat],
-        getSourceColor: (d: FlowArc) => [...d.color, 200] as [number, number, number, number],
-        getTargetColor: (d: FlowArc) => [...d.color, 80] as [number, number, number, number],
-        getWidth: (d: FlowArc) => d.amount > 0 ? Math.max(1, Math.log10(d.amount) - 2) : 2,
-        getHeight: 0.4,
-        greatCircle: true,
-        widthMinPixels: 1,
-        widthMaxPixels: 6,
-        pickable: true,
-        onHover: (info: { object?: FlowArc; x?: number; y?: number }) => this.handleHover(info),
-        autoHighlight: true,
-        highlightColor: [255, 255, 255, 60],
-      })
-    );
-
-    // Source/target dots
-    const endpoints = this.data.flowArcs.flatMap(arc => [
-      { lon: arc.sourceLon, lat: arc.sourceLat, color: arc.color, label: 'source' },
-      { lon: arc.targetLon, lat: arc.targetLat, color: arc.color, label: 'target' },
-    ]);
-
-    const pulseSize = 1 + Math.sin(this.flowPhase * 4) * 0.3;
-
-    layers.push(
-      new ScatterplotLayer({
-        id: 'flow-endpoints',
-        data: endpoints,
-        getPosition: (d: { lon: number; lat: number }) => [d.lon, d.lat],
-        getRadius: () => 6 * pulseSize,
-        getFillColor: (d: { color: [number, number, number] }) => [...d.color, 160] as [number, number, number, number],
-        radiusUnits: 'pixels' as const,
-        radiusMinPixels: 3,
-        radiusMaxPixels: 10,
-      })
-    );
-
-    // TPS pulse ring at center (animated)
-    const tpsPulsePhase = Math.sin(this.flowPhase * 5) * 0.5 + 0.5;
-    layers.push(
-      new ScatterplotLayer({
-        id: 'tps-pulse',
-        data: [{ lon: 0, lat: 0 }],
-        getPosition: () => [0, 0],
-        getRadius: () => 30 + tpsPulsePhase * 20,
-        getFillColor: [20, 241, 149, 0],
-        getLineColor: [20, 241, 149, Math.round(40 + tpsPulsePhase * 40)],
-        lineWidthMinPixels: 1,
-        stroked: true,
-        filled: false,
-        radiusUnits: 'pixels' as const,
-      })
-    );
-
-    return layers;
-  }
-
-  // ── MODE 4: RISK ──────────────────────────────────────────────────────────
+  // ── MODE 3: RISK ──────────────────────────────────────────────────────────
   private buildRiskLayers(): Layer[] {
     const layers: Layer[] = [];
+    const filteredClusters = this.getFilteredRiskClusters();
 
     // Concentration heatmap (stake amount = weight)
-    layers.push(
-      new HeatmapLayer({
-        id: 'risk-heatmap',
-        data: this.data.clusters,
-        getPosition: (d: ValidatorCluster) => [d.lon, d.lat],
-        getWeight: (d: ValidatorCluster) => d.stakeConcentration * 100,
-        radiusPixels: 60,
-        intensity: 3,
-        threshold: 0.05,
-        colorRange: [
-          [20, 241, 149, 30],   // safe (green)
-          [255, 215, 0, 80],    // warning (gold)
-          [255, 165, 0, 140],   // elevated (orange)
-          [255, 80, 80, 200],   // high risk (red)
-          [200, 0, 0, 255],     // critical (dark red)
-        ],
-        opacity: 0.7,
-      })
-    );
+    if (this.showRiskHeatmap) {
+      layers.push(
+        new HeatmapLayer({
+          id: 'risk-heatmap',
+          data: this.data.clusters,
+          getPosition: (d: ValidatorCluster) => [d.lon, d.lat],
+          getWeight: (d: ValidatorCluster) => d.stakeConcentration * 100,
+          radiusPixels: 60,
+          intensity: 3,
+          threshold: 0.05,
+          colorRange: [
+            [20, 241, 149, 30],   // safe (green)
+            [255, 215, 0, 80],    // warning (gold)
+            [255, 165, 0, 140],   // elevated (orange)
+            [255, 80, 80, 200],   // high risk (red)
+            [200, 0, 0, 255],     // critical (dark red)
+          ],
+          opacity: 0.7,
+        })
+      );
+    }
 
     // Cluster size markers (bigger = more concentrated = more risky)
-    layers.push(
-      new ScatterplotLayer({
-        id: 'risk-clusters',
-        data: this.data.clusters.filter(c => c.count >= 3),
-        getPosition: (d: ValidatorCluster) => [d.lon, d.lat],
-        getRadius: (d: ValidatorCluster) => Math.sqrt(d.count) * 4 + 5,
-        getFillColor: (d: ValidatorCluster) => {
-          if (d.stakeConcentration > 0.10) return [...COLORS.riskHigh, 180] as [number, number, number, number];
-          if (d.stakeConcentration > 0.03) return [...COLORS.riskMed, 160] as [number, number, number, number];
-          return [...COLORS.riskLow, 140] as [number, number, number, number];
-        },
-        getLineColor: (d: ValidatorCluster) =>
-          d.stakeConcentration > 0.10 ? [255, 0, 0, 200] : [255, 255, 255, 40],
-        lineWidthMinPixels: 1,
-        stroked: true,
-        radiusUnits: 'pixels' as const,
-        radiusMinPixels: 5,
-        radiusMaxPixels: 40,
-        pickable: true,
-        onHover: (info: { object?: ValidatorCluster; x?: number; y?: number }) => this.handleHover(info),
-        autoHighlight: true,
-      })
-    );
-
-    // Delinquent validators overlay
-    const delinquent = this.data.validators.filter(v => v.delinquent);
-    if (delinquent.length > 0) {
+    if (this.showRiskClusters && filteredClusters.length > 0) {
       layers.push(
         new ScatterplotLayer({
-          id: 'delinquent-markers',
-          data: delinquent,
-          getPosition: (d: SolanaValidator) => [d.lon!, d.lat!],
-          getRadius: 5,
-          getFillColor: [255, 0, 0, 200],
-          getLineColor: [255, 80, 80, 255],
+          id: 'risk-clusters',
+          data: filteredClusters,
+          getPosition: (d: ValidatorCluster) => [d.lon, d.lat],
+          getRadius: (d: ValidatorCluster) => Math.sqrt(d.count) * 4 + 5,
+          getFillColor: (d: ValidatorCluster) => {
+            if (d.stakeConcentration > 0.10) return [...COLORS.riskHigh, 180] as [number, number, number, number];
+            if (d.stakeConcentration > 0.03) return [...COLORS.riskMed, 160] as [number, number, number, number];
+            return [...COLORS.riskLow, 140] as [number, number, number, number];
+          },
+          getLineColor: (d: ValidatorCluster) =>
+            d.stakeConcentration > 0.10 ? [255, 0, 0, 200] : [255, 255, 255, 40],
           lineWidthMinPixels: 1,
           stroked: true,
           radiusUnits: 'pixels' as const,
+          radiusMinPixels: 5,
+          radiusMaxPixels: 40,
           pickable: true,
-          onHover: (info: { object?: SolanaValidator; x?: number; y?: number }) => this.handleHover(info),
+          onHover: (info: { object?: ValidatorCluster; x?: number; y?: number }) => this.handleHover(info),
+          autoHighlight: true,
         })
       );
+    }
+
+    // Delinquent validators overlay
+    if (this.showRiskDelinquent) {
+      const delinquent = this.data.validators.filter(v => v.delinquent);
+      if (delinquent.length > 0) {
+        layers.push(
+          new ScatterplotLayer({
+            id: 'delinquent-markers',
+            data: delinquent,
+            getPosition: (d: SolanaValidator) => [d.lon!, d.lat!],
+            getRadius: 5,
+            getFillColor: [255, 0, 0, 200],
+            getLineColor: [255, 80, 80, 255],
+            lineWidthMinPixels: 1,
+            stroked: true,
+            radiusUnits: 'pixels' as const,
+            pickable: true,
+            onHover: (info: { object?: SolanaValidator; x?: number; y?: number }) => this.handleHover(info),
+          })
+        );
+      }
     }
 
     return layers;
@@ -680,78 +1046,100 @@ export class SolanaDeckGlobe {
   // ── MODE 5: DeFi ──────────────────────────────────────────────────────────
   private buildDeFiLayers(): Layer[] {
     const layers: Layer[] = [];
+    const filtered = this.getFilteredDeFiBubbles();
+    const withTvl = filtered.filter(d => d.tvl > 0);
 
-    // TVL bubbles
-    layers.push(
-      new ScatterplotLayer({
-        id: 'defi-bubbles',
-        data: this.data.defiBubbles.filter(d => d.tvl > 0),
-        getPosition: (d: DeFiBubble) => [d.lon, d.lat],
-        getRadius: (d: DeFiBubble) => Math.sqrt(d.tvl) / 5000 + 8,
-        getFillColor: (d: DeFiBubble) => {
-          if (d.change24h > 3) return [...COLORS.solanaGreen, 160] as [number, number, number, number];
-          if (d.change24h > 0) return [...COLORS.cyan, 140] as [number, number, number, number];
-          if (d.change24h > -3) return [...COLORS.gold, 140] as [number, number, number, number];
-          return [...COLORS.red, 140] as [number, number, number, number];
-        },
-        getLineColor: [255, 255, 255, 60],
-        lineWidthMinPixels: 1,
-        stroked: true,
-        radiusUnits: 'pixels' as const,
-        radiusMinPixels: 8,
-        radiusMaxPixels: 50,
-        pickable: true,
-        onHover: (info: { object?: DeFiBubble; x?: number; y?: number }) => this.handleHover(info),
-        autoHighlight: true,
-        highlightColor: [255, 255, 255, 60],
-      })
-    );
+    // Helper: get category color for a protocol
+    const getCatColor = (d: DeFiBubble): [number, number, number, number] => {
+      const hex = CATEGORY_COLORS[d.category] || DEFAULT_CAT_COLOR;
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return [r, g, b, 180];
+    };
+
+    // TVL bubbles — colored by category, sized by TVL
+    if (withTvl.length > 0) {
+      layers.push(
+        new ScatterplotLayer({
+          id: 'defi-bubbles',
+          data: withTvl,
+          getPosition: (d: DeFiBubble) => [d.lon, d.lat],
+          getRadius: (d: DeFiBubble) => {
+            const maxTvl = Math.max(...withTvl.map(x => x.tvl), 1);
+            const norm = d.tvl / maxTvl;
+            return 8 + norm * 35;
+          },
+          getFillColor: (d: DeFiBubble) => getCatColor(d),
+          getLineColor: (d: DeFiBubble) => {
+            if (d.change24h > 3) return [20, 241, 149, 200] as [number, number, number, number];
+            if (d.change24h < -3) return [255, 80, 80, 200] as [number, number, number, number];
+            return [255, 255, 255, 60] as [number, number, number, number];
+          },
+          lineWidthMinPixels: 1.5,
+          stroked: true,
+          radiusUnits: 'pixels' as const,
+          radiusMinPixels: 6,
+          radiusMaxPixels: 50,
+          pickable: true,
+          onHover: (info: { object?: DeFiBubble; x?: number; y?: number }) => this.handleHover(info),
+          autoHighlight: true,
+          highlightColor: [255, 255, 255, 60],
+        })
+      );
+    }
 
     // Protocol name labels
-    layers.push(
-      new TextLayer({
-        id: 'defi-labels',
-        data: this.data.defiBubbles,
-        getPosition: (d: DeFiBubble) => [d.lon, d.lat],
-        getText: (d: DeFiBubble) => d.name,
-        getSize: (d: DeFiBubble) => d.tvl > 500_000_000 ? 14 : 11,
-        getColor: [255, 255, 255, 220],
-        getTextAnchor: 'middle' as const,
-        getAlignmentBaseline: 'bottom' as const,
-        getPixelOffset: [0, -15],
-        fontFamily: 'monospace',
-        fontWeight: 'bold',
-        outlineWidth: 2,
-        outlineColor: [0, 0, 0, 200],
-        billboard: true,
-      })
-    );
+    if (this.defiShowLabels) {
+      layers.push(
+        new TextLayer({
+          id: 'defi-labels',
+          data: filtered,
+          getPosition: (d: DeFiBubble) => [d.lon, d.lat],
+          getText: (d: DeFiBubble) => d.name,
+          getSize: (d: DeFiBubble) => d.tvl > 500_000_000 ? 14 : d.tvl > 50_000_000 ? 12 : 10,
+          getColor: [255, 255, 255, 220],
+          getTextAnchor: 'middle' as const,
+          getAlignmentBaseline: 'bottom' as const,
+          getPixelOffset: [0, -15],
+          fontFamily: 'monospace',
+          fontWeight: 'bold',
+          outlineWidth: 2,
+          outlineColor: [0, 0, 0, 200],
+          billboard: true,
+        })
+      );
 
-    // Category labels (smaller, below)
-    layers.push(
-      new TextLayer({
-        id: 'defi-category-labels',
-        data: this.data.defiBubbles.filter(d => d.tvl > 0),
-        getPosition: (d: DeFiBubble) => [d.lon, d.lat],
-        getText: (d: DeFiBubble) => {
-          const tvlStr = d.tvl >= 1e9
-            ? `$${(d.tvl / 1e9).toFixed(1)}B`
-            : `$${(d.tvl / 1e6).toFixed(0)}M`;
-          const change = d.change24h >= 0 ? `+${d.change24h.toFixed(1)}%` : `${d.change24h.toFixed(1)}%`;
-          return `${d.category} · ${tvlStr} · ${change}`;
-        },
-        getSize: 9,
-        getColor: (d: DeFiBubble) =>
-          d.change24h >= 0 ? [20, 241, 149, 180] : [255, 80, 80, 180],
-        getTextAnchor: 'middle' as const,
-        getAlignmentBaseline: 'top' as const,
-        getPixelOffset: [0, 15],
-        fontFamily: 'monospace',
-        outlineWidth: 2,
-        outlineColor: [0, 0, 0, 180],
-        billboard: true,
-      })
-    );
+      // Category + TVL labels (smaller, below)
+      if (withTvl.length > 0) {
+        layers.push(
+          new TextLayer({
+            id: 'defi-category-labels',
+            data: withTvl,
+            getPosition: (d: DeFiBubble) => [d.lon, d.lat],
+            getText: (d: DeFiBubble) => {
+              const tvlStr = d.tvl >= 1e9
+                ? `$${(d.tvl / 1e9).toFixed(1)}B`
+                : d.tvl >= 1e6
+                ? `$${(d.tvl / 1e6).toFixed(0)}M`
+                : `$${(d.tvl / 1e3).toFixed(0)}K`;
+              const change = d.change24h >= 0 ? `+${d.change24h.toFixed(1)}%` : `${d.change24h.toFixed(1)}%`;
+              return `${tvlStr} · ${change}`;
+            },
+            getSize: 9,
+            getColor: (d: DeFiBubble) =>
+              d.change24h >= 0 ? [20, 241, 149, 180] : [255, 80, 80, 180],
+            getTextAnchor: 'middle' as const,
+            getAlignmentBaseline: 'top' as const,
+            getPixelOffset: [0, 15],
+            fontFamily: 'monospace',
+            outlineWidth: 2,
+            outlineColor: [0, 0, 0, 180],
+            billboard: true,
+          })
+        );
+      }
+    }
 
     return layers;
   }
@@ -769,15 +1157,26 @@ export class SolanaDeckGlobe {
     if (this.isValidator(obj)) {
       const v = obj as SolanaValidator;
       const stakeStr = v.activatedStake >= 1_000_000
-        ? `${(v.activatedStake / 1_000_000).toFixed(1)}M SOL`
-        : `${(v.activatedStake / 1_000).toFixed(0)}K SOL`;
+        ? `${(v.activatedStake / 1_000_000).toFixed(2)}M SOL`
+        : v.activatedStake >= 1_000
+        ? `${(v.activatedStake / 1_000).toFixed(1)}K SOL`
+        : `${v.activatedStake.toLocaleString()} SOL`;
+      const clientLabel = v.clientType === 'jito' ? '🟠 Jito'
+        : v.clientType === 'firedancer' ? '🔵 Firedancer'
+        : v.clientType === 'solana-labs' ? '🟢 Solana Labs/Agave'
+        : '⚪ Unknown';
       html = `
-        <strong>${v.name || v.pubkey.slice(0, 8)}...</strong><br>
-        ${v.city || ''} ${v.country || ''}<br>
-        Stake: ${stakeStr}<br>
-        Client: ${v.clientType || 'unknown'} ${v.version || ''}<br>
-        Commission: ${v.commission}% · Skip: ${(v.skipRate || 0).toFixed(1)}%
-        ${v.delinquent ? '<br><span style="color:#ff5050">⚠ DELINQUENT</span>' : ''}
+        <strong>${v.name || v.pubkey.slice(0, 8)}...${v.pubkey.slice(-4)}</strong><br>
+        <span style="font-size:9px;opacity:0.7">${v.pubkey}</span><br>
+        📍 ${v.city || 'Unknown'}${v.country ? `, ${v.country}` : ''}
+        ${v.datacenter ? `<br>🏢 DC: ${v.datacenter}` : ''}<br>
+        💰 Stake: ${stakeStr}<br>
+        🖥️ Client: ${clientLabel}<br>
+        📦 Version: ${v.version || 'unknown'}<br>
+        📊 Commission: ${v.commission}%
+        ${(v.skipRate || 0) > 0 ? ` · Skip: ${v.skipRate!.toFixed(1)}%` : ''}
+        ${(v.apy || 0) > 0 ? `<br>📈 APY: ${v.apy!.toFixed(2)}%` : ''}
+        ${v.delinquent ? '<br><span style="color:#ff5050;font-weight:bold">⚠ DELINQUENT</span>' : ''}
       `;
     } else if (this.isDePINNode(obj)) {
       const n = obj as DePINNode;
@@ -787,12 +1186,6 @@ export class SolanaDeckGlobe {
         Reward: ${n.rewardToken}${n.dailyRewards ? ` · ${n.dailyRewards.toFixed(2)}/day` : ''}<br>
         Uptime: ${(n.uptimePercent || 0).toFixed(1)}%
       `;
-    } else if (this.isFlowArc(obj)) {
-      const f = obj as FlowArc;
-      const amountStr = f.amount >= 100_000
-        ? `${(f.amount / 1_000).toFixed(0)}K SOL`
-        : `${f.amount.toFixed(0)} SOL`;
-      html = `<strong>${f.label}</strong><br>${amountStr}`;
     } else if (this.isCluster(obj)) {
       const c = obj as ValidatorCluster;
       html = `
@@ -805,12 +1198,19 @@ export class SolanaDeckGlobe {
       const d = obj as DeFiBubble;
       const tvlStr = d.tvl >= 1e9
         ? `$${(d.tvl / 1e9).toFixed(2)}B`
-        : `$${(d.tvl / 1e6).toFixed(0)}M`;
+        : d.tvl >= 1e6
+        ? `$${(d.tvl / 1e6).toFixed(1)}M`
+        : `$${(d.tvl / 1e3).toFixed(0)}K`;
+      const change24 = d.change24h >= 0 ? `+${d.change24h.toFixed(1)}%` : `${d.change24h.toFixed(1)}%`;
+      const change7d = d.change7d !== undefined
+        ? (d.change7d >= 0 ? `+${d.change7d.toFixed(1)}%` : `${d.change7d.toFixed(1)}%`)
+        : '';
+      const changeColor24 = d.change24h >= 0 ? '#14F195' : '#FF5050';
       html = `
         <strong>${d.name}</strong><br>
-        Category: ${d.category}<br>
-        TVL: ${tvlStr}<br>
-        24h: ${d.change24h >= 0 ? '+' : ''}${d.change24h.toFixed(1)}%
+        <span style="opacity:0.7">${d.category}</span><br>
+        TVL: <span style="color:#FFD700">${tvlStr}</span><br>
+        24h: <span style="color:${changeColor24}">${change24}</span>${change7d ? ` · 7d: ${change7d}` : ''}
       `;
     }
 
@@ -829,9 +1229,6 @@ export class SolanaDeckGlobe {
   private isDePINNode(obj: unknown): obj is DePINNode {
     return typeof obj === 'object' && obj !== null && 'network' in obj && 'rewardToken' in obj;
   }
-  private isFlowArc(obj: unknown): obj is FlowArc {
-    return typeof obj === 'object' && obj !== null && 'sourceLat' in obj && 'targetLat' in obj;
-  }
   private isCluster(obj: unknown): obj is ValidatorCluster {
     return typeof obj === 'object' && obj !== null && 'stakeConcentration' in obj && 'validators' in obj;
   }
@@ -846,55 +1243,204 @@ export class SolanaDeckGlobe {
   }
 
   private updateStats(): void {
+    // Update filter counts & show/hide filter panel per mode
+    if (this.currentMode === 'validators') {
+      this.updateFilterCounts();
+      this.filterPanel.style.display = '';
+    } else if (this.currentMode === 'depin') {
+      this.updateDePINFilterCounts();
+      this.filterPanel.style.display = '';
+    } else if (this.currentMode === 'risk') {
+      this.updateRiskFilterCounts();
+      this.filterPanel.style.display = '';
+    } else if (this.currentMode === 'defi') {
+      this.updateDeFiFilterCounts();
+      this.filterPanel.style.display = '';
+    } else {
+      this.filterPanel.style.display = 'none';
+    }
+
     switch (this.currentMode) {
       case 'validators': {
-        const total = this.data.validators.length;
-        const delinquent = this.data.validators.filter(v => v.delinquent).length;
-        const nakamoto = computeNakamoto(this.data.validators);
-        const jito = this.data.validators.filter(v => v.clientType === 'jito').length;
-        const fd = this.data.validators.filter(v => v.clientType === 'firedancer').length;
+        const filtered = this.getFilteredValidators();
+        const stats = getValidatorStats(filtered);
+        const stakeStr = stats.totalStakeSOL >= 1e6
+          ? `${(stats.totalStakeSOL / 1e6).toFixed(1)}M`
+          : stats.totalStakeSOL >= 1e3
+          ? `${(stats.totalStakeSOL / 1e3).toFixed(0)}K`
+          : `${stats.totalStakeSOL.toLocaleString()}`;
+
+        // Client breakdown with percentages
+        const jito = stats.clientBreakdown['jito'] || 0;
+        const fd = stats.clientBreakdown['firedancer'] || 0;
+        const labs = stats.clientBreakdown['solana-labs'] || 0;
+        const unk = stats.clientBreakdown['unknown'] || 0;
+        const totalC = jito + fd + labs + unk || 1;
+        const jitoPct = ((jito / totalC) * 100).toFixed(1);
+        const fdPct = fd > 0 ? ((fd / totalC) * 100).toFixed(1) : '0';
+        const labsPct = ((labs / totalC) * 100).toFixed(1);
+
+        // Top countries — show flag + code
+        const FLAG: Record<string, string> = {
+          US: '🇺🇸', DE: '🇩🇪', FI: '🇫🇮', NL: '🇳🇱', FR: '🇫🇷', CA: '🇨🇦',
+          GB: '🇬🇧', SG: '🇸🇬', JP: '🇯🇵', AU: '🇦🇺', BE: '🇧🇪', IE: '🇮🇪',
+          PL: '🇵🇱', UA: '🇺🇦', RU: '🇷🇺', IN: '🇮🇳', KR: '🇰🇷', HK: '🇭🇰',
+        };
+        const topCountries = stats.countryBreakdown.slice(0, 5)
+          .map(c => {
+            const flag = FLAG[c.country] || '🌍';
+            return `${flag} ${c.country}: ${c.count} <span style="opacity:0.6">(${c.stakePercent}%)</span>`;
+          }).join('<br>');
+
+        // Top versions
+        const topVersions = stats.versionBreakdown.slice(0, 3)
+          .map(v => `v${v.version}: ${v.count}`)
+          .join(' · ');
+
         this.statsOverlay.innerHTML = `
-          VALIDATORS: ${total.toLocaleString()}<br>
-          NAKAMOTO: ${nakamoto}<br>
-          DELINQUENT: <span style="color:var(--red,#ff5050)">${delinquent}</span><br>
-          JITO: ${jito} · FD: ${fd}
+          <span style="font-size:11px;color:#14F195;font-weight:600">⬡ VALIDATORS: ${stats.total.toLocaleString()}</span><br>
+          <span style="color:#aaa">Active:</span> ${stats.active.toLocaleString()} · <span style="color:#ff5050">Delinquent: ${stats.delinquent}</span><br>
+          <span style="color:#aaa">Stake:</span> <span style="color:#FFD700">${stakeStr} SOL</span><br>
+          <span style="color:#aaa">Nakamoto:</span> <span style="color:#FFD700">${stats.nakamoto}</span> · <span style="color:#aaa">Top-10:</span> ${stats.top10StakePct}%<br>
+          <span style="border-top:1px solid rgba(255,255,255,0.12);display:block;margin:3px 0;padding-top:3px">
+          <span style="color:#FFA500">● Jito: ${jito}</span> (${jitoPct}%)${fd > 0 ? ` · <span style="color:#00D1FF">● FD: ${fd}</span> (${fdPct}%)` : ''} · <span style="color:#14F195">● Agave: ${labs}</span> (${labsPct}%)</span>${unk > 0 ? `<br><span style="color:#888">● Unknown: ${unk}</span>` : ''}<br>
+          <span style="color:#aaa">Avg Commission:</span> ${stats.avgCommission}%${stats.avgSkipRate > 0 ? ` · <span style="color:#aaa">Skip:</span> ${stats.avgSkipRate}%` : ''}<br>
+          <span style="border-top:1px solid rgba(255,255,255,0.12);display:block;margin:3px 0;padding-top:3px">
+          ${topCountries}</span><br>
+          <span style="font-size:8px;opacity:0.5">${topVersions}</span>
         `;
         break;
       }
       case 'depin': {
-        const stats = getDePINStats(this.data.depinNodes);
+        const filtered = this.getFilteredDePINNodes();
+        const dStats = getDePINStats(filtered);
+        const totalFiltered = filtered.length;
+        const activeFiltered = filtered.filter(n => n.status === 'active').length;
+        const fmt = (n: number): string => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1_000 ? (n / 1_000).toFixed(0) + 'K' : String(n);
+        const enabledNets = Object.entries(this.depinNetworkFilters).filter(([, v]) => v).length;
+        const rows = Object.entries(dStats)
+          .filter(([key]) => this.depinNetworkFilters[key])
+          .map(([key, s]) => {
+            const info = DEPIN_NETWORK_INFO[key];
+            if (!info) return '';
+            const colorKey = key as keyof typeof COLORS;
+            const rgb = COLORS[colorKey] || COLORS.white;
+            const color = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+            return `<span style="color:${color}">● ${info.label}</span>: ${s.active}/${s.total} <span style="opacity:0.5;font-size:8px">(${fmt(s.realCount)} real)</span>`;
+          }).filter(Boolean);
         this.statsOverlay.innerHTML = `
-          HELIUM: ${stats.helium.active}/${stats.helium.total}<br>
-          RENDER: ${stats.render.active}/${stats.render.total}<br>
-          IoNET: ${stats.ionet.active}/${stats.ionet.total}<br>
-          HIVEMAPPER: ${stats.hivemapper.active}/${stats.hivemapper.total}
-        `;
-        break;
-      }
-      case 'flow': {
-        this.statsOverlay.innerHTML = `
-          ACTIVE FLOWS: ${this.data.flowArcs.length}<br>
-          TOTAL VOLUME: ${(this.data.flowArcs.reduce((s, a) => s + a.amount, 0) / 1e6).toFixed(1)}M SOL<br>
-          LIVE TRACKING
+          <span style="font-size:11px;color:#14F195;font-weight:600">⬡ DePIN NODES: ${totalFiltered.toLocaleString()}</span><br>
+          <span style="color:#aaa">Active:</span> ${activeFiltered.toLocaleString()} · <span style="color:#aaa">Networks:</span> ${enabledNets}/9<br>
+          <span style="border-top:1px solid rgba(255,255,255,0.12);display:block;margin:3px 0;padding-top:3px">
+          ${rows.join('<br>')}</span>
         `;
         break;
       }
       case 'risk': {
-        const top = getDatacenterConcentration(this.data.clusters);
-        const topDc = top[0];
+        const topDCs = getDatacenterConcentration(this.data.clusters);
+        const riskStats = getValidatorStats(this.data.validators);
+        const allClusters = this.data.clusters;
+        const significantClusters = allClusters.filter(c => c.count >= 3);
+
+        // Risk level counts
+        const highRiskClusters = significantClusters.filter(c => c.stakeConcentration > 0.10);
+        const warningClusters = significantClusters.filter(c => c.stakeConcentration > 0.03 && c.stakeConcentration <= 0.10);
+        const safeClusters = significantClusters.filter(c => c.stakeConcentration <= 0.03);
+
+        // Top-5 cluster stake concentration
+        const top5Stake = allClusters.slice(0, 5).reduce((s, c) => s + c.totalStake, 0);
+        const totalStake = this.data.validators.reduce((s, v) => s + v.activatedStake, 0);
+        const top5Pct = totalStake > 0 ? ((top5Stake / totalStake) * 100).toFixed(1) : '0';
+
+        // High-risk stake
+        const hrStake = highRiskClusters.reduce((s, c) => s + c.totalStake, 0);
+        const hrPct = totalStake > 0 ? ((hrStake / totalStake) * 100).toFixed(1) : '0';
+
+        // Country geo concentration
+        const FLAG: Record<string, string> = {
+          US: '\u{1F1FA}\u{1F1F8}', DE: '\u{1F1E9}\u{1F1EA}', FI: '\u{1F1EB}\u{1F1EE}',
+          NL: '\u{1F1F3}\u{1F1F1}', FR: '\u{1F1EB}\u{1F1F7}', CA: '\u{1F1E8}\u{1F1E6}',
+          GB: '\u{1F1EC}\u{1F1E7}', SG: '\u{1F1F8}\u{1F1EC}', JP: '\u{1F1EF}\u{1F1F5}',
+          AU: '\u{1F1E6}\u{1F1FA}', BE: '\u{1F1E7}\u{1F1EA}', IE: '\u{1F1EE}\u{1F1EA}',
+          PL: '\u{1F1F5}\u{1F1F1}', UA: '\u{1F1FA}\u{1F1E6}', IN: '\u{1F1EE}\u{1F1F3}',
+          KR: '\u{1F1F0}\u{1F1F7}', HK: '\u{1F1ED}\u{1F1F0}',
+        };
+        const topCountries = riskStats.countryBreakdown.slice(0, 4)
+          .map(c => {
+            const flag = FLAG[c.country] || '\u{1F30D}';
+            return `${flag} ${c.country}: ${c.stakePercent}%`;
+          }).join(' · ');
+
+        // Top DCs
+        const topDCRows = topDCs.slice(0, 3).map(d => {
+          const color = d.stakePercent > 10 ? '#FF5050' : d.stakePercent > 3 ? '#FFD700' : '#14F195';
+          return `<span style="color:${color}">●</span> ${d.dc}: <span style="color:${color}">${d.stakePercent}%</span> <span style="opacity:0.5">(${d.count} val)</span>`;
+        }).join('<br>');
+
         this.statsOverlay.innerHTML = `
-          CLUSTERS: ${this.data.clusters.length}<br>
-          TOP DC: ${topDc?.dc || 'N/A'} (${topDc?.stakePercent || 0}%)<br>
-          DELINQUENT: ${this.data.validators.filter(v => v.delinquent).length}
+          <span style="font-size:11px;color:#FF5050;font-weight:600">\u26A0 RISK ANALYSIS</span><br>
+          <span style="color:#aaa">Clusters:</span> ${significantClusters.length} <span style="opacity:0.5;font-size:9px">(3+ validators)</span><br>
+          <span style="color:#FF5050">\u25CF High:</span> ${highRiskClusters.length} \u00B7 <span style="color:#FFD700">\u25CF Warn:</span> ${warningClusters.length} \u00B7 <span style="color:#14F195">\u25CF Safe:</span> ${safeClusters.length}<br>
+          <span style="border-top:1px solid rgba(255,255,255,0.12);display:block;margin:3px 0;padding-top:3px">
+          <span style="color:#aaa">Nakamoto Coeff:</span> <span style="color:#FFD700">${riskStats.nakamoto}</span> \u00B7 <span style="color:#aaa">Top-10 Stake:</span> ${riskStats.top10StakePct}%<br>
+          <span style="color:#aaa">Top-5 Clusters:</span> ${top5Pct}% of stake \u00B7 <span style="color:#FF5050">HR Stake:</span> ${hrPct}%<br>
+          <span style="color:#ff5050">Delinquent:</span> ${riskStats.delinquent}</span><br>
+          <span style="border-top:1px solid rgba(255,255,255,0.12);display:block;margin:3px 0;padding-top:3px">
+          <span style="color:#aaa;font-size:10px">TOP DATACENTERS</span><br>
+          ${topDCRows}</span><br>
+          <span style="border-top:1px solid rgba(255,255,255,0.12);display:block;margin:3px 0;padding-top:3px">
+          <span style="color:#aaa;font-size:10px">GEO CONCENTRATION</span><br>
+          ${topCountries}</span>
         `;
         break;
       }
       case 'defi': {
-        const totalTvl = this.data.defiBubbles.reduce((s, d) => s + d.tvl, 0);
+        const filtered = this.getFilteredDeFiBubbles();
+        const withTvl = filtered.filter(d => d.tvl > 0);
+        const totalTvl = withTvl.reduce((s, d) => s + d.tvl, 0);
+
+        // Top 3 protocols by TVL (compact)
+        const top3 = [...withTvl].sort((a, b) => b.tvl - a.tvl).slice(0, 3);
+        const top5Rows = top3.map((d, i) => {
+          const tvlStr = d.tvl >= 1e9 ? `$${(d.tvl / 1e9).toFixed(1)}B` : `$${(d.tvl / 1e6).toFixed(0)}M`;
+          const chg = d.change24h >= 0 ? `<span style="color:#14F195">+${d.change24h.toFixed(1)}%</span>` : `<span style="color:#FF5050">${d.change24h.toFixed(1)}%</span>`;
+          const catClr = CATEGORY_COLORS[d.category] || DEFAULT_CAT_COLOR;
+          return `<span style="color:${catClr}">${i + 1}.</span> ${d.name}: <span style="color:#FFD700">${tvlStr}</span> ${chg}`;
+        }).join('<br>');
+
+        // Category breakdown
+        const catMap = new Map<string, { tvl: number; count: number }>();
+        for (const d of withTvl) {
+          const e = catMap.get(d.category) || { tvl: 0, count: 0 };
+          e.tvl += d.tvl; e.count++;
+          catMap.set(d.category, e);
+        }
+        const catRows = [...catMap.entries()]
+          .sort((a, b) => b[1].tvl - a[1].tvl)
+          .slice(0, 4)
+          .map(([cat, s]) => {
+            const catClr = CATEGORY_COLORS[cat] || DEFAULT_CAT_COLOR;
+            const pct = totalTvl > 0 ? ((s.tvl / totalTvl) * 100).toFixed(1) : '0';
+            const tvlStr = s.tvl >= 1e9 ? `$${(s.tvl / 1e9).toFixed(1)}B` : `$${(s.tvl / 1e6).toFixed(0)}M`;
+            return `<span style="color:${catClr}">●</span> ${cat}: ${tvlStr} <span style="opacity:0.5">(${pct}%)</span>`;
+          }).join('<br>');
+
+        // Overall 24h trend
+        const gainers = withTvl.filter(d => d.change24h > 0).length;
+        const losers = withTvl.filter(d => d.change24h < 0).length;
+
+        const totalTvlStr = totalTvl >= 1e9 ? `$${(totalTvl / 1e9).toFixed(2)}B` : `$${(totalTvl / 1e6).toFixed(0)}M`;
+
         this.statsOverlay.innerHTML = `
-          PROTOCOLS: ${this.data.defiBubbles.length}<br>
-          TOTAL TVL: $${(totalTvl / 1e9).toFixed(1)}B<br>
-          ECOSYSTEM: SOLANA
+          <span style="font-size:10px;color:#B464FF;font-weight:600">◆ SOLANA DeFi</span><br>
+          <span style="color:#aaa">Protocols:</span> ${withTvl.length} · <span style="color:#aaa">TVL:</span> <span style="color:#FFD700">${totalTvlStr}</span><br>
+          <span style="color:#14F195">▲${gainers}</span> · <span style="color:#FF5050">▼${losers}</span> · <span style="color:#aaa">Flat ${withTvl.length - gainers - losers}</span><br>
+          <span style="border-top:1px solid rgba(255,255,255,0.12);display:block;margin:2px 0;padding-top:2px">
+          <span style="color:#aaa;font-size:9px">TOP PROTOCOLS</span><br>
+          ${top5Rows}</span><br>
+          <span style="border-top:1px solid rgba(255,255,255,0.12);display:block;margin:2px 0;padding-top:2px">
+          <span style="color:#aaa;font-size:9px">CATEGORIES</span><br>
+          ${catRows}</span>
         `;
         break;
       }
@@ -914,39 +1460,49 @@ export class SolanaDeckGlobe {
         break;
       case 'depin':
         this.legendOverlay.innerHTML = `
-          <span class="legend-label-title">NETWORK</span>
-          ${this.legendItem('#14F195', 'Helium')}
+          <span class="legend-label-title">DePIN NETWORKS</span>
+          ${this.legendItem('#14F195', 'Helium IoT')}
+          ${this.legendItem('#00FFC8', 'Helium Mobile')}
           ${this.legendItem('#FF69B4', 'Render')}
-          ${this.legendItem('#00D1FF', 'IoNet')}
+          ${this.legendItem('#00D1FF', 'io.net')}
           ${this.legendItem('#FFD700', 'Hivemapper')}
-        `;
-        break;
-      case 'flow':
-        this.legendOverlay.innerHTML = `
-          <span class="legend-label-title">FLOW</span>
-          ${this.legendItem('#FFD700', 'CEX')}
-          ${this.legendItem('#14F195', 'DEX/DeFi')}
-          ${this.legendItem('#FF69B4', 'Whale')}
-          ${this.legendItem('#FF5050', 'Liquidation')}
+          ${this.legendItem('#78FF50', 'Grass')}
+          ${this.legendItem('#FFA500', 'Geodnet')}
+          ${this.legendItem('#B464FF', 'Nosana')}
+          ${this.legendItem('#C8C8DC', 'Shadow')}
         `;
         break;
       case 'risk':
         this.legendOverlay.innerHTML = `
-          <span class="legend-label-title">RISK</span>
-          ${this.legendItem('#14F195', 'Safe')}
-          ${this.legendItem('#FFD700', 'Warning')}
-          ${this.legendItem('#FF5050', 'High Risk')}
+          <span class="legend-label-title">RISK LEVEL</span>
+          ${this.legendItem('#14F195', 'Safe (<3% stake)')}
+          ${this.legendItem('#FFD700', 'Warning (3-10%)')}
+          ${this.legendItem('#FF5050', 'High Risk (>10%)')}
+          <span class="legend-label-title" style="margin-top:4px;display:block">LAYERS</span>
+          ${this.legendItem('#FF8800', 'Concentration Heatmap')}
+          ${this.legendItem('#FF0000', 'Delinquent Validators')}
         `;
         break;
-      case 'defi':
+      case 'defi': {
+        // Build legend dynamically from active categories
+        const activeCats = new Set<string>();
+        for (const d of this.data.defiBubbles) {
+          if (this.defiCategoryFilters[d.category]) activeCats.add(d.category);
+        }
+        const catLegend = [...activeCats]
+          .map(cat => {
+            return this.legendItem(CATEGORY_COLORS[cat] || DEFAULT_CAT_COLOR, cat);
+          }).join('');
+
         this.legendOverlay.innerHTML = `
-          <span class="legend-label-title">TVL 24H</span>
-          ${this.legendItem('#14F195', 'Strong Up')}
-          ${this.legendItem('#00D1FF', 'Up')}
-          ${this.legendItem('#FFD700', 'Flat')}
-          ${this.legendItem('#FF5050', 'Down')}
+          <span class="legend-label-title">CATEGORIES</span>
+          ${catLegend}
+          <span class="legend-label-title" style="margin-top:4px;display:block">BORDER (24H)</span>
+          ${this.legendItem('#14F195', 'Up >3%')}
+          ${this.legendItem('#FF5050', 'Down >3%')}
         `;
         break;
+      }
     }
   }
 
@@ -959,19 +1515,13 @@ export class SolanaDeckGlobe {
     `;
   }
 
-  // ── Animation loop (for flow/pulse effects) ───────────────────────────────
+  // ── Animation loop ────────────────────────────────────────────────────────
   private startAnimation(): void {
     if (this.animationTimer) return;
-    // Only animate flow mode (arcs need pulse). Validators/risk are static.
+    // Currently no modes need animation; kept for future use
     this.animationTimer = setInterval(() => {
       if (this.isDestroyed) return;
-      this.flowPhase += 0.05;
-
-      // Only rebuild layers for flow mode which has genuine animations
-      if (this.currentMode === 'flow') {
-        this.updateLayers();
-      }
-    }, 200); // 5fps — sufficient for arc pulse, saves GPU
+    }, 200);
   }
 
   // ── Mode switching ────────────────────────────────────────────────────────
@@ -980,16 +1530,8 @@ export class SolanaDeckGlobe {
     this.currentMode = mode;
     console.log(`[DeckGlobe] Mode switched to: ${mode}`);
 
-    // Regenerate flow arcs when entering flow mode (fetch fresh whale data)
-    if (mode === 'flow') {
-      fetchWhaleTransactions().then(whales => {
-        this.data.flowArcs = generateFlowArcsFromWhales(whales);
-        this.updateLayers();
-      }).catch(() => {
-        this.data.flowArcs = generateFallbackFlowArcs();
-        this.updateLayers();
-      });
-    }
+    // Rebuild filter panel for the new mode
+    this.buildFilterPanel();
 
     this.updateLayers();
   }
@@ -1036,6 +1578,7 @@ export class SolanaDeckGlobe {
     this.statsOverlay.remove();
     this.legendOverlay.remove();
     this.tooltipEl.remove();
+    this.filterPanel.remove();
     this.mapDiv.remove();
     this.container.classList.remove('deckgl-mode');
   }

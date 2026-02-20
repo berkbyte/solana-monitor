@@ -2,7 +2,7 @@
 // User requirement: "Sadece tuşlarla değil, tıklayarak butonlarla da geçilmeli"
 import { escapeHtml } from '../utils/sanitize';
 
-export type GlobeMode = 'validators' | 'depin' | 'flow' | 'risk' | 'defi';
+export type GlobeMode = 'validators' | 'depin' | 'risk' | 'defi';
 
 interface GlobeModeConfig {
   id: GlobeMode;
@@ -15,9 +15,8 @@ interface GlobeModeConfig {
 const GLOBE_MODES: GlobeModeConfig[] = [
   { id: 'validators', label: 'Validators', icon: '🌐', shortcut: '1', description: 'Validator nodes, stake distribution, Nakamoto coefficient' },
   { id: 'depin', label: 'DePIN', icon: '📡', shortcut: '2', description: 'Helium, Render, IoNet physical infrastructure' },
-  { id: 'flow', label: 'Flow', icon: '⚡', shortcut: '3', description: 'Real-time transaction flows, whale movements' },
-  { id: 'risk', label: 'Risk', icon: '⚠️', shortcut: '4', description: 'Datacenter concentration, geographic risk' },
-  { id: 'defi', label: 'DeFi', icon: '🏦', shortcut: '5', description: 'DeFi protocol activity, TVL by region' },
+  { id: 'risk', label: 'Risk', icon: '⚠️', shortcut: '3', description: 'Datacenter concentration, geographic risk' },
+  { id: 'defi', label: 'DeFi', icon: '🏦', shortcut: '4', description: 'DeFi protocol activity, TVL by region' },
 ];
 
 export class GlobeModeSwitcher {

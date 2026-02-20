@@ -9988,6 +9988,113 @@ a.prediction-link:hover {
   border-color: rgba(68, 255, 136, 0.2);
 }
 
+/* deck.gl Filter Panel - left side */
+.deckgl-filter-panel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 120;
+  background: rgba(10, 10, 15, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 10px 12px;
+  min-width: 160px;
+  max-height: calc(100% - 80px);
+  overflow-y: auto;
+  backdrop-filter: blur(12px);
+  font-family: inherit;
+}
+
+.deckgl-filter-panel .filter-title {
+  font-size: 9px;
+  font-weight: 700;
+  color: #14F195;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.deckgl-filter-panel .filter-section {
+  margin-bottom: 8px;
+}
+
+.deckgl-filter-panel .filter-section:last-child {
+  margin-bottom: 0;
+}
+
+.deckgl-filter-panel .filter-section-label {
+  font-size: 8px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.deckgl-filter-panel .filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s;
+}
+
+.deckgl-filter-panel .filter-toggle:hover {
+  opacity: 0.85;
+}
+
+.deckgl-filter-panel .filter-toggle input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.deckgl-filter-panel .filter-toggle input[type="checkbox"]:checked {
+  background: #14F195;
+  border-color: #14F195;
+}
+
+.deckgl-filter-panel .filter-toggle input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: -1px;
+  left: 1px;
+  font-size: 10px;
+  color: #000;
+  font-weight: bold;
+}
+
+.deckgl-filter-panel .filter-dot {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.deckgl-filter-panel .filter-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.75);
+  flex: 1;
+  white-space: nowrap;
+}
+
+.deckgl-filter-panel .filter-count {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.35);
+  font-variant-numeric: tabular-nums;
+  min-width: 24px;
+  text-align: right;
+}
+
 /* deck.gl Legend - horizontal bar at bottom center */
 .deckgl-legend {
   position: absolute;
@@ -10026,6 +10133,34 @@ a.prediction-link:hover {
   font-size: 9px;
   color: var(--text-dim);
   white-space: nowrap;
+}
+
+/* deck.gl Stats overlay - bottom right */
+.deckgl-stats-overlay {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  top: auto;
+  left: auto;
+  transform: none;
+  z-index: 100;
+  background: var(--bg);
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 9.5px;
+  line-height: 1.45;
+  text-align: right;
+  color: var(--text-dim);
+  font-family: inherit;
+  letter-spacing: 0.3px;
+  max-width: 280px;
+  max-height: 45vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
 }
 
 /* deck.gl Timestamp */

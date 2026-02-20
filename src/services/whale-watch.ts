@@ -1,21 +1,8 @@
 // Whale Watch service — track large wallet movements on Solana
-// Uses public Solana RPC (free, no API key) with Helius as optional upgrade
-
-const HELIUS_RPC = import.meta.env.VITE_HELIUS_RPC_URL || '';
-
-// Public RPCs — free, no key needed
-const PUBLIC_RPCS = [
-  'https://api.mainnet-beta.solana.com',
-  'https://solana-mainnet.g.alchemy.com/v2/demo',
-];
-
-function getRpcUrl(): string {
-  if (HELIUS_RPC) return HELIUS_RPC;
-  return PUBLIC_RPCS[Math.floor(Math.random() * PUBLIC_RPCS.length)]!;
-}
+// Uses server-side proxy (/api/whale-transactions) to avoid CORS issues
 
 // Rough SOL price cache (updated from CoinGecko)
-let cachedSolPrice = 150;
+let cachedSolPrice = 175;
 let solPriceLastFetch = 0;
 
 async function fetchSolPrice(): Promise<number> {
@@ -57,50 +44,56 @@ export interface WatchedWallet {
   lastActivity: number;
 }
 
-// Known whale wallets and labels (CEX + DEX + DeFi protocols)
+// Known whale wallets and labels (CEX + DEX + DeFi + whales + market makers)
 export const KNOWN_WALLETS: Record<string, string> = {
-  // CEX Hot Wallets
+  // ── CEX Hot/Deposit Wallets (high tx volume) ──
   '5tzFkiKscjHK3gXGjaGRb8Ntz9GTCLbF14eMFxcU6KGo': 'Binance Hot',
   '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM': 'Binance',
+  '3gRtLxFMvBGwiBwfcMFPqFvJRMFWGJnZGFp5rtNputWj': 'Binance Deposit',
   'ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ': 'FTX Estate',
   '2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm': 'Coinbase',
   'H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS': 'Coinbase Prime',
   'GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE': 'Kraken',
-  // DEX Protocols
+  'FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiWB7t': 'Bybit',
+  'HN7cABqLq46Es1jh92dQQisATkm2fEq8sVT8YpdWKpcN': 'OKX',
+  'AC5RDfQFmDS1deWZos921JfqscXdByf24fEhg6GFUyei': 'OKX Hot',
+  // ── DEX & Aggregator Protocols ──
   'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4': 'Jupiter',
+  '45ruCyfdRkWpRNGEqWzjCiXRHkZs8WXCLQ67Pnpye7Hp': 'Jupiter DCA',
   '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': 'Raydium',
+  'CAMMCzo5YL8w4VFF8KVHr7UfmqhJeHhHczTb6h4eRgD': 'Raydium CLMM',
   'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc': 'Orca',
   'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo': 'Meteora',
-  'srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX': 'OpenBook',
-  'CAMMCzo5YL8w4VFF8KVHr7UfmqhJeHhHczTb6h4eRgD': 'Raydium CLMM',
-  // DeFi Protocols
+  // ── DeFi Protocols ──
   'HWHvQhFmJB3NUcu1aihKmrKegfVxBEHzwVX6yZCKEsi1': 'Marinade Finance',
   'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': 'Jito SOL',
   'KAMi4bsMRCJGLAMF4uH6JqxWhAZHhm5KyWBkHjD1XHP': 'Kamino Finance',
   'MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA': 'MarginFi',
   'DjDsi34mSB66p2nhBL6YvhbcLtZbkGfNybFeLDjJqxJW': 'Drift Protocol',
-  // Market Makers & Trading Firms
+  // ── Market Makers & Trading Firms ──
   '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1': 'Wintermute',
   'CuieVDEDtLo7FypA9SbLM9saXFdb1dsshEkyErMqkRQq': 'Jump Trading',
   'DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK': 'Alameda',
-  '3yFwqXBfZY4jBVUafQ1YEXw189y2dN3V5KQq9uzBDy1E': 'MER Treasury',
-  // Staking
+  // ── Staking ──
   'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': 'Marinade mSOL',
   'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1': 'BlazeStake bSOL',
+  '7ge2xKsZXmqPxa3YmXxXmzCp9Hc2ezrTxh93PEqJDEn': 'Jito Stake Pool',
+  // ── Known Large Wallets / Whales ──
+  'CZza3Ej4Mc58MnxWA385itCC9jCo3L1D7zc3LKy1bZMR': 'Tether Treasury',
+  'FGyh1FfooV7AtVrjuAPJxcFSPhBEsGYDvSVRQnPKhraE': 'Circle USDC',
 };
 
 const WHALE_THRESHOLDS = {
-  low: 10_000,      // $10K — catch more whale activity
-  medium: 100_000,
-  high: 500_000,
-  critical: 2_000_000,
+  low: 25_000,         // $25K
+  medium: 100_000,     // $100K
+  high: 500_000,       // $500K
+  critical: 2_000_000, // $2M
 };
 
 let whaleHistory: WhaleTransaction[] = [];
 const MAX_HISTORY = 500;
 let lastFetch = 0;
-const CACHE_TTL = 10_000;
-let heliusFailed = false;
+const CACHE_TTL = 15_000; // 15 sec
 
 export function classifyWhaleTransaction(amountUsd: number): WhaleTransaction['severity'] {
   if (amountUsd >= WHALE_THRESHOLDS.critical) return 'critical';
@@ -110,295 +103,342 @@ export function classifyWhaleTransaction(amountUsd: number): WhaleTransaction['s
 }
 
 export function getWalletLabel(address: string): string {
+  if (!address) return '—';
   return KNOWN_WALLETS[address] || `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
-function getHeliusApiKey(): string | null {
-  if (!HELIUS_RPC) return null;
-  try {
-    const url = new URL(HELIUS_RPC);
-    return url.searchParams.get('api-key') || null;
-  } catch {
-    return null;
+// ── Map Helius tx type to our type ──────────────────────────────
+function mapTxType(heliusType: string): WhaleTransaction['type'] {
+  switch (heliusType) {
+    case 'SWAP': return 'swap';
+    case 'NFT_SALE': case 'NFT_LISTING': case 'NFT_BID': return 'nft_trade';
+    case 'STAKE': case 'UNSTAKE': return 'stake';
+    case 'TRANSFER': return 'transfer';
+    default: return heliusType?.includes('DEX') ? 'dex_trade' : 'transfer';
   }
 }
 
-async function fetchFromHelius(apiKey: string): Promise<WhaleTransaction[]> {
-  const walletEntries = Object.entries(KNOWN_WALLETS);
-  const selected = walletEntries.sort(() => Math.random() - 0.5).slice(0, 3);
+// Well-known SPL token symbols (common high-value tokens)
+const TOKEN_SYMBOLS: Record<string, { sym: string; approxPrice: number }> = {
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { sym: 'USDC', approxPrice: 1 },
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { sym: 'USDT', approxPrice: 1 },
+  'So11111111111111111111111111111111111111112': { sym: 'wSOL', approxPrice: 0 }, // filled at runtime
+  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN': { sym: 'JUP', approxPrice: 0.8 },
+  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': { sym: 'BONK', approxPrice: 0.000025 },
+  'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL': { sym: 'JTO', approxPrice: 2.5 },
+  'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3': { sym: 'PYTH', approxPrice: 0.35 },
+  'RLBxxFkseAZ4RgJH3Sqn8jXxhmGoz9jWxDNJMh8pL7a': { sym: 'RLBK', approxPrice: 1.5 },
+  'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof': { sym: 'RNDR', approxPrice: 5.5 },
+  'WENWENvqqNya429ubCdR81ZmD69brwQaaBYY6p3LCpk': { sym: 'WEN', approxPrice: 0.00008 },
+  '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs': { sym: 'W', approxPrice: 0.3 },
+  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': { sym: 'mSOL', approxPrice: 0 }, // filled at runtime
+  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1': { sym: 'bSOL', approxPrice: 0 }, // filled at runtime
+  'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': { sym: 'jitoSOL', approxPrice: 0 }, // filled at runtime
+};
+
+// ── Parse Helius Enhanced TX response ──────────────────────────────
+function parseHeliusTxs(txs: any[], wallet: string, label: string, solPrice: number): WhaleTransaction[] {
   const results: WhaleTransaction[] = [];
-  const solPrice = await fetchSolPrice();
 
-  for (const [address, label] of selected) {
-    try {
-      const res = await fetch(
-        `https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${apiKey}&limit=5`,
-        { signal: AbortSignal.timeout(5000) }
-      );
-      if (!res.ok) continue;
-      const txs = await res.json();
+  // Update SOL-pegged token prices
+  TOKEN_SYMBOLS['So11111111111111111111111111111111111111112']!.approxPrice = solPrice;
+  TOKEN_SYMBOLS['mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So']!.approxPrice = solPrice * 1.05;
+  TOKEN_SYMBOLS['bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1']!.approxPrice = solPrice * 1.02;
+  TOKEN_SYMBOLS['J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn']!.approxPrice = solPrice * 1.07;
 
-      for (const tx of txs) {
-        if (!tx.signature) continue;
-        const nativeTransfers = tx.nativeTransfers || [];
-        for (const nt of nativeTransfers) {
-          const lamports = Math.abs(nt.amount || 0);
-          const solAmount = lamports / 1e9;
-          const usdAmount = solAmount * solPrice;
-          if (usdAmount < WHALE_THRESHOLDS.low) continue;
+  for (const tx of txs) {
+    if (!tx.signature) continue;
 
-          results.push({
-            signature: tx.signature,
-            type: tx.type === 'SWAP' ? 'swap' : tx.type === 'STAKE' ? 'stake' : 'transfer',
-            wallet: address,
-            walletLabel: label,
-            direction: nt.toUserAccount === address ? 'in' : 'out',
-            amount: solAmount,
-            amountUsd: usdAmount,
-            tokenSymbol: 'SOL',
-            tokenMint: 'So11111111111111111111111111111111111111112',
-            counterparty: nt.toUserAccount === address ? nt.fromUserAccount : nt.toUserAccount,
-            counterpartyLabel: getWalletLabel(nt.toUserAccount === address ? nt.fromUserAccount : nt.toUserAccount),
-            timestamp: (tx.timestamp || Math.floor(Date.now() / 1000)) * 1000,
-            severity: classifyWhaleTransaction(usdAmount),
-          });
+    const timestamp = (tx.timestamp || Math.floor(Date.now() / 1000)) * 1000;
+    const txType = mapTxType(tx.type || 'UNKNOWN');
+
+    // ── Aggregate ALL native SOL transfers per transaction ──
+    const nativeTransfers = tx.nativeTransfers || [];
+    let totalSolIn = 0;
+    let totalSolOut = 0;
+    let mainCounterparty = '';
+
+    for (const nt of nativeTransfers) {
+      const lamports = Math.abs(nt.amount || 0);
+      const sol = lamports / 1e9;
+
+      if (nt.toUserAccount === wallet) {
+        totalSolIn += sol;
+        if (!mainCounterparty && nt.fromUserAccount && nt.fromUserAccount !== wallet) {
+          mainCounterparty = nt.fromUserAccount;
         }
-
-        const tokenTransfers = tx.tokenTransfers || [];
-        for (const tt of tokenTransfers) {
-          const amount = tt.tokenAmount || 0;
-          // Use real USD value if Helius provides it, otherwise identify stablecoins
-          const isStable = tt.mint?.startsWith('EPjFWdd5') || tt.mint?.startsWith('Es9vMF');
-          const isWrappedSol = tt.mint === 'So11111111111111111111111111111111111111112';
-          let usdAmount: number;
-          if (isStable) {
-            usdAmount = amount;
-          } else if (isWrappedSol) {
-            usdAmount = amount * solPrice;
-          } else {
-            // Skip non-stablecoin SPL tokens without price data — we can't estimate accurately
-            continue;
-          }
-          if (usdAmount < WHALE_THRESHOLDS.low) continue;
-
-          const tokenSym = isStable
-            ? (tt.mint?.startsWith('EPjFWdd5') ? 'USDC' : 'USDT')
-            : isWrappedSol ? 'wSOL' : 'SPL';
-
-          results.push({
-            signature: tx.signature,
-            type: 'transfer',
-            wallet: address,
-            walletLabel: label,
-            direction: tt.toUserAccount === address ? 'in' : 'out',
-            amount,
-            amountUsd: usdAmount,
-            tokenSymbol: tokenSym,
-            tokenMint: tt.mint || '',
-            counterparty: tt.toUserAccount === address ? tt.fromUserAccount : tt.toUserAccount,
-            counterpartyLabel: getWalletLabel(tt.toUserAccount === address ? tt.fromUserAccount : tt.toUserAccount),
-            timestamp: (tx.timestamp || Math.floor(Date.now() / 1000)) * 1000,
-            severity: classifyWhaleTransaction(usdAmount),
-          });
+      } else if (nt.fromUserAccount === wallet) {
+        totalSolOut += sol;
+        if (!mainCounterparty && nt.toUserAccount && nt.toUserAccount !== wallet) {
+          mainCounterparty = nt.toUserAccount;
         }
       }
-    } catch {
-      continue;
+    }
+
+    // Use the larger direction as the aggregate amount
+    const grossSol = Math.max(totalSolIn, totalSolOut);
+    const solUsd = grossSol * solPrice;
+
+    if (grossSol > 0.01 && solUsd >= WHALE_THRESHOLDS.low) {
+      results.push({
+        signature: tx.signature,
+        type: txType,
+        wallet,
+        walletLabel: label,
+        direction: totalSolIn >= totalSolOut ? 'in' : 'out',
+        amount: grossSol,
+        amountUsd: solUsd,
+        tokenSymbol: 'SOL',
+        tokenMint: 'So11111111111111111111111111111111111111112',
+        counterparty: mainCounterparty,
+        counterpartyLabel: getWalletLabel(mainCounterparty),
+        timestamp,
+        severity: classifyWhaleTransaction(solUsd),
+      });
+    }
+
+    // ── Aggregate token transfers per mint ──
+    const tokenTransfers = tx.tokenTransfers || [];
+    const tokenAgg = new Map<string, { totalIn: number; totalOut: number; counterparty: string }>();
+
+    for (const tt of tokenTransfers) {
+      const mint = tt.mint || 'unknown';
+      const amount = tt.tokenAmount || 0;
+      if (amount <= 0) continue;
+
+      const entry = tokenAgg.get(mint) || { totalIn: 0, totalOut: 0, counterparty: '' };
+
+      if (tt.toUserAccount === wallet) {
+        entry.totalIn += amount;
+        if (!entry.counterparty && tt.fromUserAccount) entry.counterparty = tt.fromUserAccount;
+      } else if (tt.fromUserAccount === wallet) {
+        entry.totalOut += amount;
+        if (!entry.counterparty && tt.toUserAccount) entry.counterparty = tt.toUserAccount;
+      } else {
+        // Part of a multi-hop: attribute to wallet
+        entry.totalIn += amount;
+      }
+
+      tokenAgg.set(mint, entry);
+    }
+
+    for (const [mint, agg] of tokenAgg) {
+      const absAmount = Math.max(agg.totalIn, agg.totalOut);
+      if (absAmount <= 0) continue;
+
+      const known = TOKEN_SYMBOLS[mint];
+      let usdAmount: number;
+      let tokenSym: string;
+
+      if (known) {
+        usdAmount = absAmount * known.approxPrice;
+        tokenSym = known.sym;
+      } else {
+        // Unknown SPL token — skip if no way to price (avoids showing dust/unknown tokens)
+        // But for SWAP transactions, show with zero USD to still display activity
+        if (txType === 'swap' || txType === 'dex_trade') {
+          usdAmount = 0; // Can't price but show anyway for swaps
+          tokenSym = 'SPL';
+        } else {
+          continue;
+        }
+      }
+
+      // For known tokens, filter by threshold; for unknown swap tokens always show
+      if (known && usdAmount < WHALE_THRESHOLDS.low) continue;
+      if (!known && absAmount < 1) continue; // skip micro-amounts for unknown
+
+      results.push({
+        signature: tx.signature,
+        type: txType,
+        wallet,
+        walletLabel: label,
+        direction: agg.totalIn >= agg.totalOut ? 'in' : 'out',
+        amount: absAmount,
+        amountUsd: usdAmount,
+        tokenSymbol: tokenSym,
+        tokenMint: mint,
+        counterparty: agg.counterparty,
+        counterpartyLabel: getWalletLabel(agg.counterparty),
+        timestamp,
+        severity: usdAmount > 0 ? classifyWhaleTransaction(usdAmount) : 'low',
+      });
     }
   }
 
   return results;
 }
 
-// ── Public RPC fallback (free, no API key) ──────────────────────────────
-// Uses getSignaturesForAddress + getTransaction to find real whale movements
-
-async function rpcCall(method: string, params: unknown[]): Promise<unknown> {
-  const url = getRpcUrl();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`RPC ${res.status}`);
-  const json = await res.json();
-  if (json.error) throw new Error(json.error.message);
-  return json.result;
-}
-
-// We rotate through wallets across calls so we don't hammer rate limits
-let rpcWalletIndex = 0;
-
-async function fetchFromPublicRpc(): Promise<WhaleTransaction[]> {
-  const walletEntries = Object.entries(KNOWN_WALLETS);
+// ── Parse raw RPC TX response ──────────────────────────────
+function parseRpcTxs(data: any, wallet: string, label: string, solPrice: number): WhaleTransaction[] {
   const results: WhaleTransaction[] = [];
-  const solPrice = await fetchSolPrice();
+  const transactions = data.transactions || [];
+  const signatures = data.signatures || [];
 
-  // Check 5 wallets per refresh (rotating), keeps us within free rate limits
-  const walletsToCheck: [string, string][] = [];
-  for (let i = 0; i < 5; i++) {
-    walletsToCheck.push(walletEntries[rpcWalletIndex % walletEntries.length] as [string, string]);
-    rpcWalletIndex++;
-  }
+  for (let i = 0; i < transactions.length; i++) {
+    const tx = transactions[i];
+    if (!tx?.meta || tx.meta.err) continue;
 
-  for (const [address, label] of walletsToCheck) {
-    try {
-      // Step 1: Get recent signatures
-      const sigs = await rpcCall('getSignaturesForAddress', [
-        address,
-        { limit: 5, commitment: 'confirmed' },
-      ]) as Array<{ signature: string; blockTime?: number; err?: unknown }>;
+    const sig = tx.signature || signatures[i]?.signature || '';
+    const blockTime = tx.blockTime || signatures[i]?.blockTime;
+    const accountKeys = tx.transaction?.message?.accountKeys ?? [];
+    const getKey = (k: { pubkey: string } | string): string =>
+      typeof k === 'string' ? k : k.pubkey;
 
-      if (!Array.isArray(sigs) || sigs.length === 0) continue;
+    // Find wallet index
+    const walletIdx = accountKeys.findIndex((k: any) => getKey(k) === wallet);
+    if (walletIdx === -1) continue;
 
-      // Step 2: Fetch full transaction details for each
-      for (const sigInfo of sigs) {
-        if (sigInfo.err) continue; // skip failed TXs
+    const preBalances = tx.meta.preBalances || [];
+    const postBalances = tx.meta.postBalances || [];
 
-        try {
-          const tx = await rpcCall('getTransaction', [
-            sigInfo.signature,
-            { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' },
-          ]) as {
-            blockTime?: number;
-            meta?: {
-              preBalances?: number[];
-              postBalances?: number[];
-              preTokenBalances?: Array<{ accountIndex: number; mint: string; uiTokenAmount?: { uiAmount: number } }>;
-              postTokenBalances?: Array<{ accountIndex: number; mint: string; uiTokenAmount?: { uiAmount: number } }>;
-              err?: unknown;
-            };
-            transaction?: {
-              message?: {
-                accountKeys?: Array<{ pubkey: string } | string>;
-              };
-            };
-          } | null;
+    // Native SOL movement
+    if (walletIdx < preBalances.length && walletIdx < postBalances.length) {
+      const preLamports = preBalances[walletIdx]!;
+      const postLamports = postBalances[walletIdx]!;
+      const diffLamports = postLamports - preLamports;
+      const solAmount = Math.abs(diffLamports) / 1e9;
+      const usdAmount = solAmount * solPrice;
 
-          if (!tx?.meta || tx.meta.err) continue;
-
-          const accountKeys = tx.transaction?.message?.accountKeys ?? [];
-          const getKey = (k: { pubkey: string } | string): string =>
-            typeof k === 'string' ? k : k.pubkey;
-
-          // Find this wallet's index in the account keys
-          const walletIdx = accountKeys.findIndex(k => getKey(k) === address);
-          if (walletIdx === -1) continue;
-
-          const preBalances = tx.meta.preBalances || [];
-          const postBalances = tx.meta.postBalances || [];
-
-          // ── Native SOL movement ──
-          if (walletIdx < preBalances.length && walletIdx < postBalances.length) {
-            const preLamports = preBalances[walletIdx]!;
-            const postLamports = postBalances[walletIdx]!;
-            const diffLamports = postLamports - preLamports;
-            const solAmount = Math.abs(diffLamports) / 1e9;
-            const usdAmount = solAmount * solPrice;
-
-            if (usdAmount >= WHALE_THRESHOLDS.low) {
-              // Find counterparty — the account with the opposite largest balance change
-              let counterpartyAddr = '';
-              let maxCounterChange = 0;
-              for (let j = 0; j < accountKeys.length; j++) {
-                if (j === walletIdx) continue;
-                if (j < preBalances.length && j < postBalances.length) {
-                  const change = Math.abs((postBalances[j]!) - (preBalances[j]!));
-                  if (change > maxCounterChange) {
-                    maxCounterChange = change;
-                    counterpartyAddr = getKey(accountKeys[j]!);
-                  }
-                }
-              }
-
-              results.push({
-                signature: sigInfo.signature,
-                type: 'transfer',
-                wallet: address,
-                walletLabel: label,
-                direction: diffLamports > 0 ? 'in' : 'out',
-                amount: solAmount,
-                amountUsd: usdAmount,
-                tokenSymbol: 'SOL',
-                tokenMint: 'So11111111111111111111111111111111111111112',
-                counterparty: counterpartyAddr,
-                counterpartyLabel: getWalletLabel(counterpartyAddr),
-                timestamp: (sigInfo.blockTime || Math.floor(Date.now() / 1000)) * 1000,
-                severity: classifyWhaleTransaction(usdAmount),
-              });
+      if (usdAmount >= WHALE_THRESHOLDS.low) {
+        let counterpartyAddr = '';
+        let maxCounterChange = 0;
+        for (let j = 0; j < accountKeys.length; j++) {
+          if (j === walletIdx) continue;
+          if (j < preBalances.length && j < postBalances.length) {
+            const change = Math.abs((postBalances[j]!) - (preBalances[j]!));
+            if (change > maxCounterChange) {
+              maxCounterChange = change;
+              counterpartyAddr = getKey(accountKeys[j]!);
             }
           }
-
-          // ── SPL Token movements ──
-          const preTokens = tx.meta.preTokenBalances || [];
-          const postTokens = tx.meta.postTokenBalances || [];
-
-          // Group by mint
-          const tokenChanges = new Map<string, { pre: number; post: number }>();
-          for (const tb of preTokens) {
-            if (tb.accountIndex === walletIdx) {
-              const key = tb.mint;
-              const existing = tokenChanges.get(key) || { pre: 0, post: 0 };
-              existing.pre += tb.uiTokenAmount?.uiAmount ?? 0;
-              tokenChanges.set(key, existing);
-            }
-          }
-          for (const tb of postTokens) {
-            if (tb.accountIndex === walletIdx) {
-              const key = tb.mint;
-              const existing = tokenChanges.get(key) || { pre: 0, post: 0 };
-              existing.post += tb.uiTokenAmount?.uiAmount ?? 0;
-              tokenChanges.set(key, existing);
-            }
-          }
-
-          for (const [mint, { pre, post }] of tokenChanges) {
-            const diff = post - pre;
-            const absAmount = Math.abs(diff);
-            // Only track tokens we can accurately price
-            const isStable = mint.startsWith('EPjFWdd5') || mint.startsWith('Es9vMF');
-            const isWrappedSol = mint === 'So11111111111111111111111111111111111111112';
-            let usdAmount: number;
-            if (isStable) {
-              usdAmount = absAmount;
-            } else if (isWrappedSol) {
-              usdAmount = absAmount * solPrice;
-            } else {
-              // Skip unknown SPL tokens — showing wrong USD values is worse than missing them
-              continue;
-            }
-            if (usdAmount < WHALE_THRESHOLDS.low) continue;
-
-            const tokenSym = isStable
-              ? (mint.startsWith('EPjFWdd5') ? 'USDC' : 'USDT')
-              : isWrappedSol ? 'wSOL' : 'SPL';
-
-            results.push({
-              signature: sigInfo.signature,
-              type: 'transfer',
-              wallet: address,
-              walletLabel: label,
-              direction: diff > 0 ? 'in' : 'out',
-              amount: absAmount,
-              amountUsd: usdAmount,
-              tokenSymbol: tokenSym,
-              tokenMint: mint,
-              counterparty: '',
-              counterpartyLabel: '—',
-              timestamp: (sigInfo.blockTime || Math.floor(Date.now() / 1000)) * 1000,
-              severity: classifyWhaleTransaction(usdAmount),
-            });
-          }
-        } catch {
-          continue; // skip individual TX failures
         }
+
+        results.push({
+          signature: sig,
+          type: 'transfer',
+          wallet,
+          walletLabel: label,
+          direction: diffLamports > 0 ? 'in' : 'out',
+          amount: solAmount,
+          amountUsd: usdAmount,
+          tokenSymbol: 'SOL',
+          tokenMint: 'So11111111111111111111111111111111111111112',
+          counterparty: counterpartyAddr,
+          counterpartyLabel: getWalletLabel(counterpartyAddr),
+          timestamp: (blockTime || Math.floor(Date.now() / 1000)) * 1000,
+          severity: classifyWhaleTransaction(usdAmount),
+        });
       }
-    } catch {
-      continue; // skip wallet on error
+    }
+
+    // SPL Token movements
+    const preTokens = tx.meta.preTokenBalances || [];
+    const postTokens = tx.meta.postTokenBalances || [];
+    const tokenChanges = new Map<string, { pre: number; post: number }>();
+
+    for (const tb of preTokens) {
+      if (tb.accountIndex === walletIdx) {
+        const key = tb.mint;
+        const existing = tokenChanges.get(key) || { pre: 0, post: 0 };
+        existing.pre += tb.uiTokenAmount?.uiAmount ?? 0;
+        tokenChanges.set(key, existing);
+      }
+    }
+    for (const tb of postTokens) {
+      if (tb.accountIndex === walletIdx) {
+        const key = tb.mint;
+        const existing = tokenChanges.get(key) || { pre: 0, post: 0 };
+        existing.post += tb.uiTokenAmount?.uiAmount ?? 0;
+        tokenChanges.set(key, existing);
+      }
+    }
+
+    for (const [mint, { pre, post }] of tokenChanges) {
+      const diff = post - pre;
+      const absAmount = Math.abs(diff);
+      const isStable = mint.startsWith('EPjFWdd5') || mint.startsWith('Es9vMF');
+      const isWrappedSol = mint === 'So11111111111111111111111111111111111111112';
+      let usdAmount: number;
+      if (isStable) {
+        usdAmount = absAmount;
+      } else if (isWrappedSol) {
+        usdAmount = absAmount * solPrice;
+      } else {
+        continue;
+      }
+      if (usdAmount < WHALE_THRESHOLDS.low) continue;
+
+      const tokenSym = isStable
+        ? (mint.startsWith('EPjFWdd5') ? 'USDC' : 'USDT')
+        : isWrappedSol ? 'wSOL' : 'SPL';
+
+      results.push({
+        signature: sig,
+        type: 'transfer',
+        wallet,
+        walletLabel: label,
+        direction: diff > 0 ? 'in' : 'out',
+        amount: absAmount,
+        amountUsd: usdAmount,
+        tokenSymbol: tokenSym,
+        tokenMint: mint,
+        counterparty: '',
+        counterpartyLabel: '—',
+        timestamp: (blockTime || Math.floor(Date.now() / 1000)) * 1000,
+        severity: classifyWhaleTransaction(usdAmount),
+      });
     }
   }
 
+  return results;
+}
+
+// ── Fetch through server proxy ──────────────────────────────
+// We rotate through wallets across calls
+let walletRotationIndex = 0;
+
+async function fetchViaProxy(): Promise<WhaleTransaction[]> {
+  const walletEntries = Object.entries(KNOWN_WALLETS);
+  const solPrice = await fetchSolPrice();
+  const results: WhaleTransaction[] = [];
+
+  // Check 12 wallets per refresh (rotating)
+  const walletsToCheck: [string, string][] = [];
+  for (let i = 0; i < 12; i++) {
+    walletsToCheck.push(walletEntries[walletRotationIndex % walletEntries.length] as [string, string]);
+    walletRotationIndex++;
+  }
+
+  const fetches = walletsToCheck.map(async ([address, label]) => {
+    try {
+      const res = await fetch(`/api/whale-transactions?wallet=${address}`, {
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) {
+        console.warn(`[whale-watch] Proxy returned ${res.status} for ${label}`);
+        return [];
+      }
+      const data = await res.json();
+
+      if (data.source === 'helius') {
+        return parseHeliusTxs(data.transactions || [], address, label, solPrice);
+      } else if (data.source === 'rpc') {
+        return parseRpcTxs(data, address, label, solPrice);
+      }
+      return [];
+    } catch (e: any) {
+      console.warn(`[whale-watch] Failed for ${label}: ${e.message}`);
+      return [];
+    }
+  });
+
+  const allResults = await Promise.all(fetches);
+  for (const batch of allResults) {
+    results.push(...batch);
+  }
+
+  console.log(`[whale-watch] Fetched ${results.length} whale txs from ${walletsToCheck.map(w => w[1]).join(', ')}`);
   return results;
 }
 
@@ -406,42 +446,30 @@ export async function fetchWhaleTransactions(): Promise<WhaleTransaction[]> {
   const now = Date.now();
   if (whaleHistory.length > 0 && now - lastFetch < CACHE_TTL) return whaleHistory;
 
-  let newTxs: WhaleTransaction[] = [];
+  try {
+    const newTxs = await fetchViaProxy();
 
-  // Try Helius Enhanced Transactions API first (richer data)
-  if (!heliusFailed) {
-    const apiKey = getHeliusApiKey();
-    if (apiKey) {
-      try {
-        newTxs = await fetchFromHelius(apiKey);
-      } catch {
-        heliusFailed = true;
+    // Merge, deduplicate, sort by time
+    const sigs = new Set(whaleHistory.map(t => t.signature));
+    for (const tx of newTxs) {
+      if (!sigs.has(tx.signature)) {
+        whaleHistory.push(tx);
+        sigs.add(tx.signature);
       }
     }
-  }
 
-  // Fallback: public Solana RPC (free, no API key required)
-  if (newTxs.length === 0) {
-    try {
-      newTxs = await fetchFromPublicRpc();
-    } catch {
-      // silent — will just show existing history
+    // Sort newest first
+    whaleHistory.sort((a, b) => b.timestamp - a.timestamp);
+
+    if (whaleHistory.length > MAX_HISTORY) {
+      whaleHistory = whaleHistory.slice(0, MAX_HISTORY);
     }
+
+    lastFetch = now;
+  } catch (e) {
+    console.error('[whale-watch] Fetch error:', e);
   }
 
-  // Merge, deduplicate, trim
-  const sigs = new Set(whaleHistory.map(t => t.signature));
-  for (const tx of newTxs) {
-    if (!sigs.has(tx.signature)) {
-      whaleHistory.unshift(tx);
-      sigs.add(tx.signature);
-    }
-  }
-  if (whaleHistory.length > MAX_HISTORY) {
-    whaleHistory = whaleHistory.slice(0, MAX_HISTORY);
-  }
-
-  lastFetch = now;
   return whaleHistory;
 }
 
