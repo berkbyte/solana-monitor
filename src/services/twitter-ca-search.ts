@@ -2,7 +2,7 @@
  * Twitter/X CA Search Service
  *
  * Searches X/Twitter for tweets mentioning a Solana token's contract address.
- * Uses the /api/twitter-ca serverless endpoint (SocialData.tools API).
+ * Uses the /api/x-api serverless endpoint (SocialData.tools API).
  *
  * The API is synchronous — results are returned immediately.
  */
@@ -55,7 +55,7 @@ export async function fetchCATweets(mint: string): Promise<CATweetResult> {
   }
 
   try {
-    const res = await fetch(`/api/twitter-ca?mint=${encodeURIComponent(mint)}`, {
+    const res = await fetch(`/api/x-api?mint=${encodeURIComponent(mint)}`, {
       signal: AbortSignal.timeout(15_000),
     });
 

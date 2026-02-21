@@ -724,22 +724,28 @@ async function handleSolanaRpcProxy(req: any, res: any) {
 
 // ───────────────────────── Twitter CA Search (SocialData) ──────────
 
-async function handleTwitterCA(req: any, res: any): Promise<void> {
+// ───────────────────────── Unified X/Twitter API (CA + Search) ─────────────────────────
+async function handleXApi(req: any, res: any): Promise<void> {
   const parsed = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
   const mint = parsed.searchParams.get('mint');
+  const q = parsed.searchParams.get('q');
 
-  if (!mint) {
-    return json(res, { error: 'Missing mint parameter' }, 400);
+  if (!mint && !q) {
+    return json(res, { error: 'Missing mint or q parameter' }, 400);
   }
 
   const apiKey = getEnv('SOCIALDATA_API_KEY');
   if (!apiKey) {
-    console.warn('[twitter-ca] SOCIALDATA_API_KEY not set');
-    return json(res, { error: 'Twitter search not configured — SOCIALDATA_API_KEY missing' }, 503);
+    console.warn('[x-api] SOCIALDATA_API_KEY not set');
+    return json(res, { error: 'X search not configured — SOCIALDATA_API_KEY missing' }, 503);
   }
 
+  const searchQuery = mint || q!;
+  const maxTweets = mint ? 20 : 30;
+  const logPrefix = mint ? '[x-api/ca]' : '[x-api/search]';
+
   try {
-    const query = encodeURIComponent(mint);
+    const query = encodeURIComponent(searchQuery);
     const searchRes = await fetchWithTimeout(
       `https://api.socialdata.tools/twitter/search?query=${query}&type=Latest`,
       {
@@ -753,17 +759,17 @@ async function handleTwitterCA(req: any, res: any): Promise<void> {
 
     if (!searchRes.ok) {
       const errText = await searchRes.text();
-      console.error('[twitter-ca] SocialData search failed:', searchRes.status, errText);
+      console.error(`${logPrefix} SocialData search failed:`, searchRes.status, errText);
       if (searchRes.status === 402) {
         return json(res, { error: 'SocialData credits exhausted' }, 503);
       }
-      return json(res, { error: 'Twitter search failed' }, 502);
+      return json(res, { error: 'Search failed' }, 502);
     }
 
     const searchData = await searchRes.json() as any;
     const rawTweets = (searchData.tweets || []) as any[];
 
-    const tweets = rawTweets.slice(0, 20).map((t: any) => ({
+    const tweets = rawTweets.slice(0, maxTweets).map((t: any) => ({
       id: t.id_str || String(t.id || ''),
       text: (t.full_text || t.text || '').slice(0, 500),
       author: t.user?.name || 'Unknown',
@@ -780,10 +786,10 @@ async function handleTwitterCA(req: any, res: any): Promise<void> {
         : '',
     }));
 
-    console.log(`[twitter-ca] ✅ ${tweets.length} tweets for ${mint.slice(0, 8)}...`);
+    console.log(`${logPrefix} ✅ ${tweets.length} tweets for ${searchQuery.slice(0, 8)}...`);
     return json(res, { status: 'ready', tweets });
   } catch (err: any) {
-    console.error('[twitter-ca] Error:', err.message);
+    console.error(`${logPrefix} Error:`, err.message);
     return json(res, { error: 'Internal error' }, 500);
   }
 }
@@ -842,11 +848,32 @@ function parseBody(req: any): Promise<any> {
   });
 }
 
-// ───────────────────────── Groq summarize handler ─────────────────────────
-async function handleGroqSummarize(req: any, res: any) {
-  const apiKey = getEnv('GROQ_API_KEY');
+// ───────────────────────── Unified summarize handler (Groq + OpenRouter) ─────────────────────────
+const DEV_PROVIDERS: Record<string, { url: string; model: string; envKey: string; extraHeaders: Record<string, string>; label: string }> = {
+  groq: {
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    model: 'llama-3.1-8b-instant',
+    envKey: 'GROQ_API_KEY',
+    extraHeaders: {},
+    label: 'dev-groq',
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    model: 'openrouter/free',
+    envKey: 'OPENROUTER_API_KEY',
+    extraHeaders: { 'HTTP-Referer': 'https://solana-monitor.vercel.app', 'X-Title': 'SolanaMonitor' },
+    label: 'dev-openrouter',
+  },
+};
+
+async function handleSummarize(req: any, res: any) {
+  const parsed = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+  const providerName = parsed.searchParams.get('provider') || 'groq';
+  const provider = DEV_PROVIDERS[providerName] || DEV_PROVIDERS.groq;
+
+  const apiKey = getEnv(provider.envKey);
   if (!apiKey) {
-    return json(res, { summary: null, fallback: true, skipped: true, reason: 'GROQ_API_KEY not configured' });
+    return json(res, { summary: null, fallback: true, skipped: true, reason: `${provider.envKey} not configured` });
   }
 
   const { headlines, mode = 'brief', geoContext = '', variant = 'full' } = await parseBody(req);
@@ -877,83 +904,29 @@ async function handleGroqSummarize(req: any, res: any) {
   }
 
   try {
-    const r = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
+    const r = await fetchWithTimeout(provider.url, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', ...provider.extraHeaders },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
+        model: provider.model,
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
         temperature: 0.3, max_tokens: mode === 'social' ? 250 : 150, top_p: 0.9,
       }),
-    }, 15000);
+    }, providerName === 'openrouter' ? 20000 : 15000);
 
     if (!r.ok) {
-      console.error(`[dev-groq] API error: ${r.status}`);
-      return json(res, { error: 'Groq API error', fallback: true }, r.status);
+      console.error(`[${provider.label}] API error: ${r.status}`);
+      return json(res, { error: `${provider.label} API error`, fallback: true }, r.status);
     }
 
     const data = await r.json();
     const summary = data.choices?.[0]?.message?.content?.trim();
     if (!summary) return json(res, { error: 'Empty response', fallback: true }, 500);
 
-    console.log(`[dev-groq] ✅ ${summary.slice(0, 60)}...`);
-    return json(res, { summary, model: 'llama-3.1-8b-instant', provider: 'groq', cached: false, tokens: data.usage?.total_tokens || 0 });
+    console.log(`[${provider.label}] ✅ ${summary.slice(0, 60)}...`);
+    return json(res, { summary, model: provider.model, provider: providerName, cached: false, tokens: data.usage?.total_tokens || 0 });
   } catch (e: any) {
-    console.error('[dev-groq] Error:', e.message);
-    return json(res, { error: e.message, fallback: true }, 500);
-  }
-}
-
-// ───────────────────────── OpenRouter summarize handler ─────────────────────────
-async function handleOpenRouterSummarize(req: any, res: any) {
-  const apiKey = getEnv('OPENROUTER_API_KEY');
-  if (!apiKey) {
-    return json(res, { summary: null, fallback: true, skipped: true, reason: 'OPENROUTER_API_KEY not configured' });
-  }
-
-  const { headlines, mode = 'brief', geoContext = '', variant = 'full' } = await parseBody(req);
-  if (!headlines || !Array.isArray(headlines) || headlines.length === 0) {
-    return json(res, { error: 'Headlines array required' }, 400);
-  }
-
-  const headlineText = headlines.slice(0, 8).map((h: string, i: number) => `${i + 1}. ${h}`).join('\n');
-  const dateContext = `Current date: ${new Date().toISOString().split('T')[0]}.`;
-  const intelSection = geoContext ? `\n\n${geoContext}` : '';
-
-  const systemPrompt = mode === 'brief'
-    ? `${dateContext}\nSummarize the key development in 2-3 sentences. Lead with WHAT happened. No bullet points.`
-    : `${dateContext}\nSynthesize in 2 sentences max.`;
-  const userPrompt = `Summarize:\n${headlineText}${intelSection}`;
-
-  try {
-    const r = await fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://solana-monitor.vercel.app',
-        'X-Title': 'SolanaMonitor',
-      },
-      body: JSON.stringify({
-        model: 'openrouter/free',
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        temperature: 0.3, max_tokens: 150, top_p: 0.9,
-      }),
-    }, 20000);
-
-    if (!r.ok) {
-      console.error(`[dev-openrouter] API error: ${r.status}`);
-      return json(res, { error: 'OpenRouter API error', fallback: true }, r.status);
-    }
-
-    const data = await r.json();
-    const summary = data.choices?.[0]?.message?.content?.trim();
-    if (!summary) return json(res, { error: 'Empty response', fallback: true }, 500);
-
-    console.log(`[dev-openrouter] ✅ ${summary.slice(0, 60)}...`);
-    return json(res, { summary, model: 'openrouter/free', provider: 'openrouter', cached: false, tokens: data.usage?.total_tokens || 0 });
-  } catch (e: any) {
-    console.error('[dev-openrouter] Error:', e.message);
+    console.error(`[${provider.label}] Error:`, e.message);
     return json(res, { error: e.message, fallback: true }, 500);
   }
 }
@@ -997,17 +970,14 @@ export function devApiPlugin(): Plugin {
           if (url.startsWith('/api/solana-rpc-proxy')) {
             return await handleSolanaRpcProxy(req, res);
           }
-          if (url.startsWith('/api/twitter-ca')) {
-            return await handleTwitterCA(req, res);
+          if (url.startsWith('/api/x-api')) {
+            return await handleXApi(req, res);
           }
           if (url.startsWith('/api/whale-transactions')) {
             return await handleWhaleTransactions(req, res);
           }
-          if (url.startsWith('/api/groq-summarize')) {
-            return await handleGroqSummarize(req, res);
-          }
-          if (url.startsWith('/api/openrouter-summarize')) {
-            return await handleOpenRouterSummarize(req, res);
+          if (url.startsWith('/api/summarize')) {
+            return await handleSummarize(req, res);
           }
         } catch (e: any) {
           console.error(`[dev-api] Error handling ${url}:`, e.message);

@@ -21,7 +21,7 @@ export type ProgressCallback = (step: number, total: number, message: string) =>
 async function tryGroq(headlines: string[], geoContext?: string): Promise<SummarizationResult | null> {
   if (!isFeatureAvailable('aiGroq')) return null;
   try {
-    const response = await fetch('/api/groq-summarize', {
+    const response = await fetch('/api/summarize?provider=groq', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ headlines, mode: 'brief', geoContext, variant: SITE_VARIANT }),
@@ -50,7 +50,7 @@ async function tryGroq(headlines: string[], geoContext?: string): Promise<Summar
 async function tryOpenRouter(headlines: string[], geoContext?: string): Promise<SummarizationResult | null> {
   if (!isFeatureAvailable('aiOpenRouter')) return null;
   try {
-    const response = await fetch('/api/openrouter-summarize', {
+    const response = await fetch('/api/summarize?provider=openrouter', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ headlines, mode: 'brief', geoContext, variant: SITE_VARIANT }),

@@ -1,5 +1,8 @@
-// X/Twitter Keyword Search — SocialData.tools API
-// General-purpose X search (any keyword/phrase)
+// Unified X/Twitter API — SocialData.tools
+// Combines twitter-ca (token CA search) and x-search (keyword search)
+// Usage:
+//   ?mint=<address>  → Token CA mentions (20 tweets, 120s cache)
+//   ?q=<keyword>     → Keyword search (30 tweets, 180s cache)
 // Env vars: SOCIALDATA_API_KEY
 
 import { corsHeaders } from './_cors.js';
@@ -21,15 +24,21 @@ export default async function handler(req, res) {
   }
 
   const { searchParams } = new URL(req.url, `http://${req.headers.host}`);
+  const mint = searchParams.get('mint');
   const q = searchParams.get('q');
 
-  if (!q) {
-    return res.status(400).json({ error: 'Missing q parameter' });
+  if (!mint && !q) {
+    return res.status(400).json({ error: 'Missing mint or q parameter' });
   }
 
+  // Determine mode: CA search vs keyword search
+  const searchQuery = mint || q;
+  const maxTweets = mint ? 20 : 30;
+  const cacheSeconds = mint ? 120 : 180;
+  const logPrefix = mint ? '[x-api/ca]' : '[x-api/search]';
+
   try {
-    // SocialData search is synchronous — no polling needed
-    const query = encodeURIComponent(q);
+    const query = encodeURIComponent(searchQuery);
     const searchRes = await fetch(`${SD_BASE}/search?query=${query}&type=Latest`, {
       headers: {
         Authorization: `Bearer ${API_KEY}`,
@@ -39,7 +48,7 @@ export default async function handler(req, res) {
 
     if (!searchRes.ok) {
       const errText = await searchRes.text();
-      console.error('[x-search] SocialData search failed:', searchRes.status, errText);
+      console.error(`${logPrefix} SocialData search failed:`, searchRes.status, errText);
       if (searchRes.status === 402) {
         return res.status(503).json({ error: 'SocialData credits exhausted' });
       }
@@ -49,7 +58,7 @@ export default async function handler(req, res) {
     const searchData = await searchRes.json();
     const rawTweets = searchData.tweets || [];
 
-    const tweets = rawTweets.slice(0, 30).map((t) => ({
+    const tweets = rawTweets.slice(0, maxTweets).map((t) => ({
       id: t.id_str || String(t.id || ''),
       text: (t.full_text || t.text || '').slice(0, 500),
       author: t.user?.name || 'Unknown',
@@ -66,10 +75,10 @@ export default async function handler(req, res) {
         : '',
     }));
 
-    res.setHeader('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=60');
+    res.setHeader('Cache-Control', `public, s-maxage=${cacheSeconds}, stale-while-revalidate=60`);
     return res.status(200).json({ status: 'ready', tweets });
   } catch (err) {
-    console.error('[x-search] Error:', err);
+    console.error(`${logPrefix} Error:`, err);
     return res.status(500).json({ error: 'Internal error' });
   }
 }

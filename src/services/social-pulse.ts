@@ -73,7 +73,7 @@ interface NormalizedTweet {
 
 async function fetchSolanaTweets(): Promise<{ tweets: NormalizedTweet[]; status: string }> {
   try {
-    const res = await fetch('/api/x-search?q=solana', {
+    const res = await fetch('/api/x-api?q=solana', {
       signal: AbortSignal.timeout(15_000),
     });
 
@@ -191,7 +191,7 @@ async function fetchAICommentary(tweets: NormalizedTweet[]): Promise<string | nu
   });
 
   try {
-    const res = await fetch('/api/groq-summarize', {
+    const res = await fetch('/api/summarize?provider=groq', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
