@@ -832,6 +832,132 @@ async function handleWhaleTransactions(req: any, res: any) {
   return json(res, { error: 'Helius API unavailable', source: 'none', transactions: [] }, 502);
 }
 
+// ───────────────────────── Body parser helper ─────────────────────────
+function parseBody(req: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk: string) => { body += chunk; });
+    req.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve({}); } });
+    req.on('error', reject);
+  });
+}
+
+// ───────────────────────── Groq summarize handler ─────────────────────────
+async function handleGroqSummarize(req: any, res: any) {
+  const apiKey = getEnv('GROQ_API_KEY');
+  if (!apiKey) {
+    return json(res, { summary: null, fallback: true, skipped: true, reason: 'GROQ_API_KEY not configured' });
+  }
+
+  const { headlines, mode = 'brief', geoContext = '', variant = 'full' } = await parseBody(req);
+  if (!headlines || !Array.isArray(headlines) || headlines.length === 0) {
+    return json(res, { error: 'Headlines array required' }, 400);
+  }
+
+  const headlineText = headlines.slice(0, 8).map((h: string, i: number) => `${i + 1}. ${h}`).join('\n');
+  const isTechVariant = variant === 'tech';
+  const dateContext = `Current date: ${new Date().toISOString().split('T')[0]}.${isTechVariant ? '' : ' Donald Trump is the current US President (second term, inaugurated Jan 2025).'}`;
+  const intelSection = geoContext ? `\n\n${geoContext}` : '';
+
+  let systemPrompt: string;
+  let userPrompt: string;
+
+  if (mode === 'social') {
+    systemPrompt = `${dateContext}\nYou are a crypto social media analyst. Analyze real-time tweets about Solana.\nWrite a sharp 3-4 sentence social intelligence briefing. Be specific, data-driven.`;
+    userPrompt = `Analyze these recent tweets:\n\n${headlineText}`;
+  } else if (mode === 'brief') {
+    systemPrompt = `${dateContext}\nSummarize the key development in 2-3 sentences. Lead with WHAT happened. No bullet points.`;
+    userPrompt = `Summarize the top story:\n${headlineText}${intelSection}`;
+  } else if (mode === 'analysis') {
+    systemPrompt = `${dateContext}\nProvide analysis in 2-3 sentences. Be direct and specific. Lead with the insight.`;
+    userPrompt = `What's the key pattern or risk?\n${headlineText}${intelSection}`;
+  } else {
+    systemPrompt = `${dateContext}\nSynthesize in 2 sentences max.`;
+    userPrompt = `Key takeaway:\n${headlineText}${intelSection}`;
+  }
+
+  try {
+    const r = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        temperature: 0.3, max_tokens: mode === 'social' ? 250 : 150, top_p: 0.9,
+      }),
+    }, 15000);
+
+    if (!r.ok) {
+      console.error(`[dev-groq] API error: ${r.status}`);
+      return json(res, { error: 'Groq API error', fallback: true }, r.status);
+    }
+
+    const data = await r.json();
+    const summary = data.choices?.[0]?.message?.content?.trim();
+    if (!summary) return json(res, { error: 'Empty response', fallback: true }, 500);
+
+    console.log(`[dev-groq] ✅ ${summary.slice(0, 60)}...`);
+    return json(res, { summary, model: 'llama-3.1-8b-instant', provider: 'groq', cached: false, tokens: data.usage?.total_tokens || 0 });
+  } catch (e: any) {
+    console.error('[dev-groq] Error:', e.message);
+    return json(res, { error: e.message, fallback: true }, 500);
+  }
+}
+
+// ───────────────────────── OpenRouter summarize handler ─────────────────────────
+async function handleOpenRouterSummarize(req: any, res: any) {
+  const apiKey = getEnv('OPENROUTER_API_KEY');
+  if (!apiKey) {
+    return json(res, { summary: null, fallback: true, skipped: true, reason: 'OPENROUTER_API_KEY not configured' });
+  }
+
+  const { headlines, mode = 'brief', geoContext = '', variant = 'full' } = await parseBody(req);
+  if (!headlines || !Array.isArray(headlines) || headlines.length === 0) {
+    return json(res, { error: 'Headlines array required' }, 400);
+  }
+
+  const headlineText = headlines.slice(0, 8).map((h: string, i: number) => `${i + 1}. ${h}`).join('\n');
+  const dateContext = `Current date: ${new Date().toISOString().split('T')[0]}.`;
+  const intelSection = geoContext ? `\n\n${geoContext}` : '';
+
+  const systemPrompt = mode === 'brief'
+    ? `${dateContext}\nSummarize the key development in 2-3 sentences. Lead with WHAT happened. No bullet points.`
+    : `${dateContext}\nSynthesize in 2 sentences max.`;
+  const userPrompt = `Summarize:\n${headlineText}${intelSection}`;
+
+  try {
+    const r = await fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://solana-monitor.vercel.app',
+        'X-Title': 'SolanaMonitor',
+      },
+      body: JSON.stringify({
+        model: 'openrouter/free',
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        temperature: 0.3, max_tokens: 150, top_p: 0.9,
+      }),
+    }, 20000);
+
+    if (!r.ok) {
+      console.error(`[dev-openrouter] API error: ${r.status}`);
+      return json(res, { error: 'OpenRouter API error', fallback: true }, r.status);
+    }
+
+    const data = await r.json();
+    const summary = data.choices?.[0]?.message?.content?.trim();
+    if (!summary) return json(res, { error: 'Empty response', fallback: true }, 500);
+
+    console.log(`[dev-openrouter] ✅ ${summary.slice(0, 60)}...`);
+    return json(res, { summary, model: 'openrouter/free', provider: 'openrouter', cached: false, tokens: data.usage?.total_tokens || 0 });
+  } catch (e: any) {
+    console.error('[dev-openrouter] Error:', e.message);
+    return json(res, { error: e.message, fallback: true }, 500);
+  }
+}
+
 // ───────────────────────── Plugin export ─────────────────────────
 export function devApiPlugin(): Plugin {
   return {
@@ -876,6 +1002,12 @@ export function devApiPlugin(): Plugin {
           }
           if (url.startsWith('/api/whale-transactions')) {
             return await handleWhaleTransactions(req, res);
+          }
+          if (url.startsWith('/api/groq-summarize')) {
+            return await handleGroqSummarize(req, res);
+          }
+          if (url.startsWith('/api/openrouter-summarize')) {
+            return await handleOpenRouterSummarize(req, res);
           }
         } catch (e: any) {
           console.error(`[dev-api] Error handling ${url}:`, e.message);
