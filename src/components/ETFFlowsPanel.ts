@@ -4,8 +4,9 @@ import { escapeHtml } from '@/utils/sanitize';
 interface ETFData {
   ticker: string;
   issuer: string;
+  name?: string;
   type?: string;
-  status?: 'active' | 'estimated';
+  status?: 'active' | 'unavailable';
   price: number;
   priceChange: number;
   volume: number;
@@ -14,6 +15,7 @@ interface ETFData {
   direction: 'inflow' | 'outflow' | 'neutral';
   estFlow: number;
   aum?: number;
+  exchange?: string;
 }
 
 interface ETFFlowsResult {
@@ -62,6 +64,8 @@ function changeCls(val: number): string {
 function typeBadge(type?: string): string {
   if (type === 'trust') return '<span class="etf-badge etf-badge-trust">Trust</span>';
   if (type === 'spot-etf') return '<span class="etf-badge etf-badge-spot">Spot</span>';
+  if (type === 'staking-etf') return '<span class="etf-badge etf-badge-staking">Staking</span>';
+  if (type === 'leveraged') return '<span class="etf-badge etf-badge-leveraged">2×</span>';
   if (type === 'futures') return '<span class="etf-badge etf-badge-futures">Futures</span>';
   return '';
 }
@@ -136,21 +140,22 @@ export class ETFFlowsPanel extends Panel {
 
     // ── Source badge ──
     const srcBadge = d.dataSource === 'yahoo-finance'
-      ? '<span class="etf-source-badge etf-src-live">Live</span>'
-      : '<span class="etf-source-badge etf-src-est">Est.</span>';
+      ? '<span class="etf-source-badge etf-src-live">Yahoo Finance</span>'
+      : '<span class="etf-source-badge etf-src-est">Unavailable</span>';
 
     // ── Table rows ──
-    const rows = d.etfs.map(etf => {
+    // Only show active ETFs in the table (skip unavailable)
+    const activeEtfs = d.etfs.filter(etf => etf.status === 'active');
+    const rows = activeEtfs.map(etf => {
       const flowSign = etf.direction === 'inflow' ? '+' : etf.direction === 'outflow' ? '−' : '';
       const aumStr = etf.aum ? fmtUsd(etf.aum) : '—';
       const volRatioStr = etf.volumeRatio > 0 ? `${etf.volumeRatio.toFixed(1)}×` : '—';
-      const statusDot = etf.status === 'active'
-        ? '<span class="etf-status-dot etf-dot-active" title="Live data"></span>'
-        : '<span class="etf-status-dot etf-dot-est" title="Estimated"></span>';
+      const statusDot = '<span class="etf-status-dot etf-dot-active" title="Live data"></span>';
+      const nameStr = etf.name ? `<span class="etf-name">${escapeHtml(etf.name)}</span>` : '';
 
       return `
       <tr class="etf-row">
-        <td class="etf-ticker">${statusDot}${escapeHtml(etf.ticker)} ${typeBadge(etf.type)}</td>
+        <td class="etf-ticker">${statusDot}${escapeHtml(etf.ticker)} ${typeBadge(etf.type)}${nameStr}</td>
         <td class="etf-issuer">${escapeHtml(etf.issuer)}</td>
         <td class="etf-aum">${aumStr}</td>
         <td class="etf-flow ${flowCls(etf.direction)}">${flowSign}${fmtUsd(etf.estFlow)}</td>

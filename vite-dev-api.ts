@@ -35,16 +35,15 @@ const ALLOWED_DOMAINS = new Set([
 ]);
 
 // ───────────────────────── ETF definitions ─────────────────────────
-// Solana ETF products (spot & futures, as of 2025-2026)
-const ETF_LIST = [
-  { ticker: 'SOLZ', issuer: 'Grayscale', type: 'trust' },
-  { ticker: 'GSOL', issuer: 'Grayscale', type: 'spot-etf' },
-  { ticker: 'VSOL', issuer: 'VanEck', type: 'spot-etf' },
-  { ticker: 'BSOL', issuer: 'Bitwise', type: 'spot-etf' },
-  { ticker: '21SOL', issuer: '21Shares', type: 'spot-etf' },
-  { ticker: 'FSOL', issuer: 'Franklin Templeton', type: 'spot-etf' },
-  { ticker: 'CSOL', issuer: 'Canary Capital', type: 'spot-etf' },
-  { ticker: 'SOLQ', issuer: 'Fidelity', type: 'spot-etf' },
+// Solana ETF/ETP products with real Yahoo Finance tickers (verified Feb 2026)
+const ETF_LIST: { ticker: string; issuer: string; name: string; type: string }[] = [
+  { ticker: 'SOLZ', issuer: 'Grayscale',           name: 'Solana ETF',                        type: 'spot-etf' },
+  { ticker: 'GSOL', issuer: 'Grayscale',           name: 'Grayscale Solana Staking ETF',      type: 'staking-etf' },
+  { ticker: 'VSOL', issuer: 'VanEck',              name: 'VanEck Solana ETF',                 type: 'spot-etf' },
+  { ticker: 'BSOL', issuer: 'Bitwise',             name: 'Bitwise Solana Staking ETF',        type: 'staking-etf' },
+  { ticker: 'FSOL', issuer: 'Fidelity',            name: 'Fidelity Solana Fund',              type: 'spot-etf' },
+  { ticker: 'SOLT', issuer: 'T-Rex',               name: '2x Solana ETF',                     type: 'leveraged' },
+  { ticker: 'SOLX', issuer: 'T-Rex',               name: 'T-REX 2X Long SOL Daily Target ETF',type: 'leveraged' },
 ];
 
 // ───────────────────────── helpers ─────────────────────────
@@ -107,14 +106,49 @@ async function handleRssProxy(req: any, res: any) {
 let etfCache: any = null;
 let etfCacheTs = 0;
 
+// Fetch real data from Yahoo Finance v8 chart API for a single ticker
+async function fetchYahooChart(ticker: string): Promise<any | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d&includePrePost=false`;
+    const res = await fetchWithTimeout(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+    }, 8000);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const result = data?.chart?.result?.[0];
+    if (!result?.meta?.regularMarketPrice) return null;
+
+    const meta = result.meta;
+    const volumes = result.indicators?.quote?.[0]?.volume || [];
+    // Average volume from last 5 days
+    const validVols = volumes.filter((v: number | null) => v != null && v > 0);
+    const avgVolume = validVols.length > 0
+      ? Math.round(validVols.reduce((s: number, v: number) => s + v, 0) / validVols.length)
+      : 0;
+
+    return {
+      price: meta.regularMarketPrice,
+      prevClose: meta.chartPreviousClose ?? meta.previousClose ?? meta.regularMarketPrice,
+      dayHigh: meta.regularMarketDayHigh ?? meta.regularMarketPrice,
+      dayLow: meta.regularMarketDayLow ?? meta.regularMarketPrice,
+      volume: meta.regularMarketVolume ?? 0,
+      avgVolume,
+      exchange: meta.fullExchangeName ?? meta.exchangeName ?? '',
+      currency: meta.currency ?? 'USD',
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function handleEtfFlows(_req: any, res: any) {
   const now = Date.now();
   if (etfCache && now - etfCacheTs < 900_000) {
     return json(res, etfCache);
   }
 
-  // Fetch real SOL price for flow estimates
-  let solPrice = 150;
+  // Fetch real SOL price from CoinGecko
+  let solPrice = 0;
   let solChange24h = 0;
   try {
     const solRes = await fetchWithTimeout(
@@ -123,76 +157,100 @@ async function handleEtfFlows(_req: any, res: any) {
     );
     if (solRes.ok) {
       const solData = await solRes.json();
-      solPrice = solData.solana?.usd ?? 150;
+      solPrice = solData.solana?.usd ?? 0;
       solChange24h = solData.solana?.usd_24h_change ?? 0;
     }
-  } catch { /* use default */ }
+  } catch { /* fallback below */ }
 
-  // Generate deterministic-per-day Solana ETF flow estimates
-  const dayStr = new Date().toISOString().slice(0, 10);
-  const results = ETF_LIST.map((etf: any) => {
-    const isTrust = etf.type === 'trust';
-    const baseAum = isTrust ? 800_000_000 : 120_000_000;
-    const seed = simpleHash(etf.ticker + dayStr);
-    const jitter = (seed % 1000) / 1000;
-    const flowPct = (jitter - 0.45) * 5;
-    const estFlow = Math.round(baseAum * flowPct / 100);
-    const volume = Math.round(baseAum * (0.02 + jitter * 0.06));
-    const avgVolume = Math.round(volume * (0.85 + jitter * 0.3));
-    const priceChange = solChange24h + (jitter - 0.5) * 1.5;
-    const direction = estFlow > 1_000_000 ? 'inflow' as const
-      : estFlow < -1_000_000 ? 'outflow' as const
+  // Fetch real Yahoo Finance data for all ETFs in parallel
+  console.log(`[etf-flows] Fetching ${ETF_LIST.length} tickers from Yahoo Finance...`);
+  const chartPromises = ETF_LIST.map(etf => fetchYahooChart(etf.ticker));
+  const charts = await Promise.all(chartPromises);
+
+  let activeCount = 0;
+  const results = ETF_LIST.map((etf, i) => {
+    const chart = charts[i];
+    if (!chart) {
+      // Ticker not found on Yahoo — mark as pending/unavailable
+      return {
+        ticker: etf.ticker,
+        issuer: etf.issuer,
+        name: etf.name,
+        type: etf.type,
+        status: 'unavailable' as const,
+        price: 0,
+        priceChange: 0,
+        volume: 0,
+        avgVolume: 0,
+        volumeRatio: 0,
+        direction: 'neutral' as const,
+        estFlow: 0,
+        aum: 0,
+        exchange: '',
+      };
+    }
+
+    activeCount++;
+    const priceChange = chart.prevClose > 0
+      ? ((chart.price - chart.prevClose) / chart.prevClose) * 100
+      : 0;
+    const volumeRatio = chart.avgVolume > 0 ? chart.volume / chart.avgVolume : 1;
+
+    // Estimate flow using volume deviation × price direction
+    const volumeDeviation = volumeRatio - 1;
+    const flowSign = priceChange >= 0 ? 1 : -1;
+    const estAum = chart.volume * chart.price * 20; // rough AUM estimate
+    const estFlow = Math.round(estAum * volumeDeviation * 0.02 * flowSign);
+    const direction = estFlow > 500_000 ? 'inflow' as const
+      : estFlow < -500_000 ? 'outflow' as const
       : 'neutral' as const;
 
     return {
       ticker: etf.ticker,
       issuer: etf.issuer,
+      name: etf.name,
       type: etf.type,
-      status: 'estimated' as const,
-      price: +(solPrice * (0.97 + jitter * 0.06)).toFixed(2),
+      status: 'active' as const,
+      price: +chart.price.toFixed(2),
       priceChange: +priceChange.toFixed(2),
-      volume,
-      avgVolume,
-      volumeRatio: +(volume / Math.max(avgVolume, 1)).toFixed(2),
+      volume: chart.volume,
+      avgVolume: chart.avgVolume,
+      volumeRatio: +volumeRatio.toFixed(2),
       direction,
       estFlow,
-      aum: Math.round(baseAum * (0.8 + jitter * 0.4)),
+      aum: Math.round(estAum),
+      exchange: chart.exchange,
     };
   });
 
-  const totalFlow = results.reduce((s: number, r: any) => s + r.estFlow, 0);
-  const inflowCount = results.filter((r: any) => r.direction === 'inflow').length;
-  const outflowCount = results.filter((r: any) => r.direction === 'outflow').length;
+  const activeResults = results.filter((r: any) => r.status === 'active');
+  const totalFlow = activeResults.reduce((s: number, r: any) => s + r.estFlow, 0);
+  const inflowCount = activeResults.filter((r: any) => r.direction === 'inflow').length;
+  const outflowCount = activeResults.filter((r: any) => r.direction === 'outflow').length;
+  const totalVolume = activeResults.reduce((s: number, r: any) => s + r.volume, 0);
 
   const result = {
     timestamp: new Date().toISOString(),
     asset: 'SOL',
     solPrice,
     solChange24h,
-    dataSource: 'estimated',
+    dataSource: activeCount > 0 ? 'yahoo-finance' : 'unavailable',
     etfs: results,
     summary: {
       etfCount: results.length,
-      activeCount: 0,
+      activeCount,
       totalEstFlow: totalFlow,
-      netDirection: totalFlow > 5_000_000 ? 'NET INFLOW' : totalFlow < -5_000_000 ? 'NET OUTFLOW' : 'NEUTRAL',
-      totalVolume: results.reduce((s: number, r: any) => s + r.volume, 0),
+      netDirection: totalFlow > 1_000_000 ? 'NET INFLOW' : totalFlow < -1_000_000 ? 'NET OUTFLOW' : 'NEUTRAL',
+      totalVolume,
       inflowCount,
       outflowCount,
     },
   };
 
+  console.log(`[etf-flows] ✅ ${activeCount}/${results.length} active, SOL $${solPrice.toFixed(2)}, totalVol ${totalVolume.toLocaleString()}`);
   etfCache = result;
   etfCacheTs = now;
   return json(res, result);
-}
-
-function simpleHash(str: string): number {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
 }
 
 // ───────────────────────── Polymarket handler ─────────────────────────

@@ -12079,7 +12079,21 @@ body.has-critical-banner .panels-grid {
 }
 .etf-badge-trust   { background: rgba(156, 39, 176, 0.15); color: #ce93d8; }
 .etf-badge-spot    { background: rgba(0, 200, 83, 0.12); color: var(--semantic-normal); }
+.etf-badge-staking { background: rgba(255, 152, 0, 0.15); color: #ffb74d; }
+.etf-badge-leveraged { background: rgba(244, 67, 54, 0.15); color: #ef9a9a; }
 .etf-badge-futures { background: rgba(33, 150, 243, 0.15); color: #64b5f6; }
+
+.etf-name {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-tertiary, #8892b0);
+  font-weight: 400;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
 
 /* ── Status dots (live vs estimated) ── */
 .etf-status-dot {
