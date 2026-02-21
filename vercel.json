@@ -4,7 +4,7 @@
     "api/helium-hotspots.js": { "maxDuration": 60 },
     "api/validators-app.js": { "maxDuration": 60 },
     "api/solana-rpc-proxy.js": { "maxDuration": 60 },
-    "api/whale-transactions.js": { "maxDuration": 60 }
+    "api/etf-flows.js": { "maxDuration": 30 }
   },
   "headers": [
     {
