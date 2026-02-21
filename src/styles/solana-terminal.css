@@ -185,6 +185,17 @@
   border-top: 1px solid var(--border);
 }
 
+.net-fee-title {
+  grid-column: 1 / -1;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.net-fee-title small {
+  opacity: 0.6;
+}
+
 .net-fee-level {
   text-align: center;
   padding: 4px;
@@ -1059,105 +1070,6 @@
   height: 100%;
   background: var(--solana-gradient);
   border-radius: 2px;
-}
-
-/* ============================================================
-   PRIORITY FEES PANEL
-   ============================================================ */
-
-.fee-congestion {
-  padding: 8px;
-  border-bottom: 2px solid;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.fee-congestion-label {
-  font-size: 0.7rem;
-  color: var(--text-dim);
-}
-
-.fee-congestion-value {
-  font-weight: 700;
-  font-size: 0.85rem;
-}
-
-.fee-levels {
-  padding: 8px;
-}
-
-.fee-level-card {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px;
-  margin-bottom: 4px;
-  background: var(--overlay-subtle);
-  border-radius: 4px;
-}
-
-.fee-level-header {
-  display: flex;
-  flex-direction: column;
-}
-
-.fee-level-label {
-  font-weight: 600;
-  font-size: 0.8rem;
-}
-
-.fee-level-desc {
-  font-size: 0.6rem;
-  color: var(--text-dim);
-}
-
-.fee-level-value {
-  text-align: right;
-}
-
-.fee-micro {
-  font-weight: 700;
-  font-size: 0.9rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.fee-unit {
-  font-size: 0.6rem;
-  color: var(--text-dim);
-  margin-left: 2px;
-}
-
-.fee-section-title {
-  font-size: 0.7rem;
-  color: var(--text-dim);
-  display: block;
-  margin: 8px 0 4px;
-}
-
-.fee-percentile-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-}
-
-.fee-pct {
-  text-align: center;
-  padding: 4px;
-  background: var(--overlay-subtle);
-  border-radius: 3px;
-}
-
-.pct-label {
-  font-size: 0.6rem;
-  color: var(--text-dim);
-  display: block;
-}
-
-.pct-value {
-  font-size: 0.75rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ============================================================

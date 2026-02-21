@@ -34,11 +34,10 @@ export const REFRESH_INTERVALS = {
   feeds: 3 * 60 * 1000,           // News feeds: 3 min
   markets: 60 * 1000,             // Market data: 1 min
   crypto: 30 * 1000,              // Crypto prices: 30s
-  solanaNetwork: 10 * 1000,       // Network status: 10s
+  solanaNetwork: 30 * 1000,       // Network status: 30s (Helius RPC)
   tokenRadar: 5 * 60 * 1000,          // Token radar: 5 min (real discovery)
   whaleWatch: 15 * 1000,          // Whale movements: 15s
   defi: 5 * 60 * 1000,            // DeFi TVL: 5 min
-  priorityFees: 10 * 1000,        // Fee levels: 10s
   mev: 60 * 1000,                 // MEV stats: 1 min
   liquidStaking: 5 * 60 * 1000,   // LST data: 5 min
   nft: 5 * 60 * 1000,             // NFT data: 5 min

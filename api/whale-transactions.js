@@ -1,6 +1,6 @@
-// Whale Transactions Proxy — Helius Enhanced TX API + RPC fallback
+// Whale Transactions Proxy — Helius Enhanced TX API only
 // Proxies whale wallet transaction lookups server-side
-// Uses Helius API key from env, falls back to public RPC
+// Uses Helius API key from env (no public RPC fallback)
 
 import { corsHeaders } from './_cors.js';
 
@@ -38,50 +38,12 @@ export default async function handler(req, res) {
         res.setHeader('Cache-Control', 'public, s-maxage=15, stale-while-revalidate=10');
         return res.status(200).json({ source: 'helius', transactions: txs });
       }
-    } catch (_e) { /* fall through to RPC */ }
-  }
-
-  // Strategy 2: Public RPC fallback
-  const rpcUrl = process.env.VITE_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com';
-  try {
-    const sigRes = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', id: 1,
-        method: 'getSignaturesForAddress',
-        params: [wallet, { limit: 10, commitment: 'confirmed' }],
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    const sigJson = await sigRes.json();
-    const sigs = sigJson.result || [];
-
-    const transactions = [];
-    for (const sig of sigs.slice(0, 5)) {
-      if (sig.err) continue;
-      try {
-        const txRes = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
-            method: 'getTransaction',
-            params: [sig.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }],
-          }),
-          signal: AbortSignal.timeout(8000),
-        });
-        const txJson = await txRes.json();
-        if (txJson.result) {
-          transactions.push({ ...txJson.result, signature: sig.signature, blockTime: txJson.result.blockTime || sig.blockTime });
-        }
-      } catch { /* skip */ }
+      console.warn(`[whale-transactions] Helius returned ${r.status}`);
+    } catch (_e) {
+      console.error('[whale-transactions] Helius error:', _e);
     }
-
-    res.setHeader('Cache-Control', 'public, s-maxage=15, stale-while-revalidate=10');
-    return res.status(200).json({ source: 'rpc', transactions, signatures: sigs });
-  } catch (err) {
-    console.error('[whale-transactions] Error:', err);
-    return res.status(502).json({ error: 'Failed to fetch whale data', source: 'none', transactions: [] });
   }
+
+  // No Helius key or Helius failed
+  return res.status(502).json({ error: 'Helius API unavailable', source: 'none', transactions: [] });
 }

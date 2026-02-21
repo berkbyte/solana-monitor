@@ -5,7 +5,7 @@
 import { corsHeaders } from './_cors.js';
 
 const TOKEN = process.env.VITE_VALIDATORS_APP_TOKEN || 'WPAQGS3PbDtgjtkPiZXW6AEG';
-const API_URL = 'https://www.validators.app/api/v1/validators/mainnet.json?limit=9999&active_only=false';
+const API_URL = 'https://www.validators.app/api/v1/validators/mainnet.json?limit=9999&active_only=true';
 
 export default async function handler(req, res) {
   const origin = req.headers.origin || '';

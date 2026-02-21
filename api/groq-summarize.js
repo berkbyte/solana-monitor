@@ -7,10 +7,22 @@
 
 import { getCachedJson, setCachedJson, hashString } from './_upstash-cache.js';
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
+import { createIpRateLimiter } from './_ip-rate-limit.js';
 
 export const config = {
   runtime: 'edge',
 };
+
+const rateLimiter = createIpRateLimiter({
+  limit: 10,         // 10 requests per window per IP
+  windowMs: 60_000,  // 1 minute window
+});
+
+function getClientIp(req) {
+  return req.headers.get('x-forwarded-for')?.split(',')[0] ||
+    req.headers.get('x-real-ip') ||
+    'unknown';
+}
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = 'llama-3.1-8b-instant'; // 14.4K RPD vs 1K for 70b
@@ -78,6 +90,14 @@ export default async function handler(request) {
     return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // IP rate limiting — protect Groq API quota
+  if (!rateLimiter.check(getClientIp(request))) {
+    return new Response(JSON.stringify({ summary: null, fallback: true, reason: 'Rate limited' }), {
+      status: 429,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '60' },
     });
   }
 

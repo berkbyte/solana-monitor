@@ -8,10 +8,22 @@
 
 import { getCachedJson, setCachedJson, hashString } from './_upstash-cache.js';
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
+import { createIpRateLimiter } from './_ip-rate-limit.js';
 
 export const config = {
   runtime: 'edge',
 };
+
+const rateLimiter = createIpRateLimiter({
+  limit: 10,
+  windowMs: 60_000,
+});
+
+function getClientIp(req) {
+  return req.headers.get('x-forwarded-for')?.split(',')[0] ||
+    req.headers.get('x-real-ip') ||
+    'unknown';
+}
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = 'openrouter/free';
@@ -79,6 +91,14 @@ export default async function handler(request) {
     return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // IP rate limiting — protect OpenRouter API quota
+  if (!rateLimiter.check(getClientIp(request))) {
+    return new Response(JSON.stringify({ summary: null, fallback: true, reason: 'Rate limited' }), {
+      status: 429,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '60' },
     });
   }
 
@@ -200,8 +220,8 @@ Rules:
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://worldmonitor.app',
-        'X-Title': 'WorldMonitor',
+        'HTTP-Referer': 'https://solana-monitor.vercel.app',
+        'X-Title': 'SolanaMonitor',
       },
       body: JSON.stringify({
         model: MODEL,

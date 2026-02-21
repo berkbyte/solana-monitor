@@ -17,7 +17,6 @@ const FULL_PANELS: Record<string, PanelConfig> = {
 
   // ── Tier 2: Network & On-chain ──
   'network-status': { name: 'Network Status', enabled: true, priority: 1 },
-  'priority-fees': { name: 'Priority Fees', enabled: true, priority: 1 },
   'liquid-staking': { name: 'Liquid Staking', enabled: true, priority: 1 },
   'mev-dashboard': { name: 'MEV & Jito', enabled: true, priority: 1 },
 

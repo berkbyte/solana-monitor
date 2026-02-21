@@ -392,10 +392,8 @@ export interface SolanaNetworkStatus {
   validatorCount: number;
   delinquentCount: number;
   totalStake: number;
-  avgPriorityFee: number;
-  medianPriorityFee: number;
-  health: 'ok' | 'degraded' | 'down';
-  nakamotoCoefficient?: number;
+  feeLevels: { min: number; low: number; medium: number; high: number; veryHigh: number; unsafeMax: number };
+  health: 'healthy' | 'degraded' | 'down';
   blockTime?: number;
 }
 

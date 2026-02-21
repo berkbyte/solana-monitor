@@ -389,7 +389,7 @@ async function handleValidatorsApp(_req: any, res: any) {
     return json(res, validatorsAppCache.data);
   }
 
-  const url = 'https://www.validators.app/api/v1/validators/mainnet.json?limit=9999&active_only=false';
+  const url = 'https://www.validators.app/api/v1/validators/mainnet.json?limit=9999&active_only=true';
   try {
     console.log('[validators-app] Fetching from validators.app...');
     const response = await fetchWithTimeout(url, {
@@ -789,7 +789,7 @@ async function handleTwitterCA(req: any, res: any): Promise<void> {
 }
 
 // ───────────────────────── Whale Transactions Proxy ─────────────────────────
-// Proxies Helius Enhanced TX API server-side to avoid CORS + provide logging
+// Proxies Helius Enhanced TX API server-side (no public RPC fallback)
 const whaleCache = new Map<string, { data: any; ts: number }>();
 const WHALE_CACHE_TTL = 15_000; // 15s cache per wallet
 
@@ -828,51 +828,8 @@ async function handleWhaleTransactions(req: any, res: any) {
     }
   }
 
-  // Strategy 2: Public RPC fallback
-  const rpcUrl = getEnv('VITE_HELIUS_RPC_URL') || 'https://api.mainnet-beta.solana.com';
-  try {
-    // Get recent signatures
-    const sigRes = await fetchWithTimeout(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', id: 1,
-        method: 'getSignaturesForAddress',
-        params: [wallet, { limit: 10, commitment: 'confirmed' }],
-      }),
-    }, 8000);
-    const sigJson = await sigRes.json();
-    const sigs = sigJson.result || [];
-
-    // Fetch full transaction details
-    const transactions: any[] = [];
-    for (const sig of sigs.slice(0, 5)) {
-      if (sig.err) continue;
-      try {
-        const txRes = await fetchWithTimeout(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
-            method: 'getTransaction',
-            params: [sig.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }],
-          }),
-        }, 8000);
-        const txJson = await txRes.json();
-        if (txJson.result) {
-          transactions.push({ ...txJson.result, signature: sig.signature, blockTime: txJson.result.blockTime || sig.blockTime });
-        }
-      } catch { /* skip */ }
-    }
-
-    console.log(`[whale-proxy] RPC ✅ ${wallet.slice(0, 8)}... → ${transactions.length} txs`);
-    const result = { source: 'rpc', transactions, signatures: sigs };
-    whaleCache.set(wallet, { data: result, ts: Date.now() });
-    return json(res, result);
-  } catch (e: any) {
-    console.error(`[whale-proxy] RPC error for ${wallet.slice(0, 8)}...: ${e.message}`);
-    return json(res, { error: 'Failed to fetch whale data', source: 'none', transactions: [] }, 502);
-  }
+  // No Helius key or Helius failed
+  return json(res, { error: 'Helius API unavailable', source: 'none', transactions: [] }, 502);
 }
 
 // ───────────────────────── Plugin export ─────────────────────────

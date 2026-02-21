@@ -1,15 +1,15 @@
 // Whale Watch service — track large wallet movements on Solana
 // Uses server-side proxy (/api/whale-transactions) to avoid CORS issues
+// SOL price fetched through /api/coingecko server proxy (no direct client-side calls)
 
-// Rough SOL price cache (updated from CoinGecko)
 let cachedSolPrice = 175;
 let solPriceLastFetch = 0;
 
 async function fetchSolPrice(): Promise<number> {
   if (Date.now() - solPriceLastFetch < 60_000) return cachedSolPrice;
   try {
-    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', {
-      signal: AbortSignal.timeout(3000),
+    const res = await fetch('/api/coingecko?ids=solana&vs_currencies=usd', {
+      signal: AbortSignal.timeout(4000),
     });
     if (res.ok) {
       const data = await res.json();
@@ -118,22 +118,17 @@ function mapTxType(heliusType: string): WhaleTransaction['type'] {
   }
 }
 
-// Well-known SPL token symbols (common high-value tokens)
+// Reliably priceable tokens only — stablecoins ($1) and SOL-pegged (runtime price)
+// No hardcoded altcoin prices — they go stale fast and produce wrong USD amounts
 const TOKEN_SYMBOLS: Record<string, { sym: string; approxPrice: number }> = {
+  // Stablecoins — fixed $1
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { sym: 'USDC', approxPrice: 1 },
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { sym: 'USDT', approxPrice: 1 },
-  'So11111111111111111111111111111111111111112': { sym: 'wSOL', approxPrice: 0 }, // filled at runtime
-  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN': { sym: 'JUP', approxPrice: 0.8 },
-  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': { sym: 'BONK', approxPrice: 0.000025 },
-  'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL': { sym: 'JTO', approxPrice: 2.5 },
-  'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3': { sym: 'PYTH', approxPrice: 0.35 },
-  'RLBxxFkseAZ4RgJH3Sqn8jXxhmGoz9jWxDNJMh8pL7a': { sym: 'RLBK', approxPrice: 1.5 },
-  'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof': { sym: 'RNDR', approxPrice: 5.5 },
-  'WENWENvqqNya429ubCdR81ZmD69brwQaaBYY6p3LCpk': { sym: 'WEN', approxPrice: 0.00008 },
-  '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs': { sym: 'W', approxPrice: 0.3 },
-  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': { sym: 'mSOL', approxPrice: 0 }, // filled at runtime
-  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1': { sym: 'bSOL', approxPrice: 0 }, // filled at runtime
-  'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': { sym: 'jitoSOL', approxPrice: 0 }, // filled at runtime
+  // SOL-pegged — filled at runtime from live SOL price
+  'So11111111111111111111111111111111111111112': { sym: 'wSOL', approxPrice: 0 },
+  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So': { sym: 'mSOL', approxPrice: 0 },
+  'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1': { sym: 'bSOL', approxPrice: 0 },
+  'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn': { sym: 'jitoSOL', approxPrice: 0 },
 };
 
 // ── Parse Helius Enhanced TX response ──────────────────────────────
@@ -234,19 +229,11 @@ function parseHeliusTxs(txs: any[], wallet: string, label: string, solPrice: num
         usdAmount = absAmount * known.approxPrice;
         tokenSym = known.sym;
       } else {
-        // Unknown SPL token — skip if no way to price (avoids showing dust/unknown tokens)
-        // But for SWAP transactions, show with zero USD to still display activity
-        if (txType === 'swap' || txType === 'dex_trade') {
-          usdAmount = 0; // Can't price but show anyway for swaps
-          tokenSym = 'SPL';
-        } else {
-          continue;
-        }
+        // Unknown SPL token — skip entirely (can't price reliably)
+        continue;
       }
 
-      // For known tokens, filter by threshold; for unknown swap tokens always show
-      if (known && usdAmount < WHALE_THRESHOLDS.low) continue;
-      if (!known && absAmount < 1) continue; // skip micro-amounts for unknown
+      if (usdAmount < WHALE_THRESHOLDS.low) continue;
 
       results.push({
         signature: tx.signature,
@@ -269,173 +256,48 @@ function parseHeliusTxs(txs: any[], wallet: string, label: string, solPrice: num
   return results;
 }
 
-// ── Parse raw RPC TX response ──────────────────────────────
-function parseRpcTxs(data: any, wallet: string, label: string, solPrice: number): WhaleTransaction[] {
-  const results: WhaleTransaction[] = [];
-  const transactions = data.transactions || [];
-  const signatures = data.signatures || [];
-
-  for (let i = 0; i < transactions.length; i++) {
-    const tx = transactions[i];
-    if (!tx?.meta || tx.meta.err) continue;
-
-    const sig = tx.signature || signatures[i]?.signature || '';
-    const blockTime = tx.blockTime || signatures[i]?.blockTime;
-    const accountKeys = tx.transaction?.message?.accountKeys ?? [];
-    const getKey = (k: { pubkey: string } | string): string =>
-      typeof k === 'string' ? k : k.pubkey;
-
-    // Find wallet index
-    const walletIdx = accountKeys.findIndex((k: any) => getKey(k) === wallet);
-    if (walletIdx === -1) continue;
-
-    const preBalances = tx.meta.preBalances || [];
-    const postBalances = tx.meta.postBalances || [];
-
-    // Native SOL movement
-    if (walletIdx < preBalances.length && walletIdx < postBalances.length) {
-      const preLamports = preBalances[walletIdx]!;
-      const postLamports = postBalances[walletIdx]!;
-      const diffLamports = postLamports - preLamports;
-      const solAmount = Math.abs(diffLamports) / 1e9;
-      const usdAmount = solAmount * solPrice;
-
-      if (usdAmount >= WHALE_THRESHOLDS.low) {
-        let counterpartyAddr = '';
-        let maxCounterChange = 0;
-        for (let j = 0; j < accountKeys.length; j++) {
-          if (j === walletIdx) continue;
-          if (j < preBalances.length && j < postBalances.length) {
-            const change = Math.abs((postBalances[j]!) - (preBalances[j]!));
-            if (change > maxCounterChange) {
-              maxCounterChange = change;
-              counterpartyAddr = getKey(accountKeys[j]!);
-            }
-          }
-        }
-
-        results.push({
-          signature: sig,
-          type: 'transfer',
-          wallet,
-          walletLabel: label,
-          direction: diffLamports > 0 ? 'in' : 'out',
-          amount: solAmount,
-          amountUsd: usdAmount,
-          tokenSymbol: 'SOL',
-          tokenMint: 'So11111111111111111111111111111111111111112',
-          counterparty: counterpartyAddr,
-          counterpartyLabel: getWalletLabel(counterpartyAddr),
-          timestamp: (blockTime || Math.floor(Date.now() / 1000)) * 1000,
-          severity: classifyWhaleTransaction(usdAmount),
-        });
-      }
-    }
-
-    // SPL Token movements
-    const preTokens = tx.meta.preTokenBalances || [];
-    const postTokens = tx.meta.postTokenBalances || [];
-    const tokenChanges = new Map<string, { pre: number; post: number }>();
-
-    for (const tb of preTokens) {
-      if (tb.accountIndex === walletIdx) {
-        const key = tb.mint;
-        const existing = tokenChanges.get(key) || { pre: 0, post: 0 };
-        existing.pre += tb.uiTokenAmount?.uiAmount ?? 0;
-        tokenChanges.set(key, existing);
-      }
-    }
-    for (const tb of postTokens) {
-      if (tb.accountIndex === walletIdx) {
-        const key = tb.mint;
-        const existing = tokenChanges.get(key) || { pre: 0, post: 0 };
-        existing.post += tb.uiTokenAmount?.uiAmount ?? 0;
-        tokenChanges.set(key, existing);
-      }
-    }
-
-    for (const [mint, { pre, post }] of tokenChanges) {
-      const diff = post - pre;
-      const absAmount = Math.abs(diff);
-      const isStable = mint.startsWith('EPjFWdd5') || mint.startsWith('Es9vMF');
-      const isWrappedSol = mint === 'So11111111111111111111111111111111111111112';
-      let usdAmount: number;
-      if (isStable) {
-        usdAmount = absAmount;
-      } else if (isWrappedSol) {
-        usdAmount = absAmount * solPrice;
-      } else {
-        continue;
-      }
-      if (usdAmount < WHALE_THRESHOLDS.low) continue;
-
-      const tokenSym = isStable
-        ? (mint.startsWith('EPjFWdd5') ? 'USDC' : 'USDT')
-        : isWrappedSol ? 'wSOL' : 'SPL';
-
-      results.push({
-        signature: sig,
-        type: 'transfer',
-        wallet,
-        walletLabel: label,
-        direction: diff > 0 ? 'in' : 'out',
-        amount: absAmount,
-        amountUsd: usdAmount,
-        tokenSymbol: tokenSym,
-        tokenMint: mint,
-        counterparty: '',
-        counterpartyLabel: '—',
-        timestamp: (blockTime || Math.floor(Date.now() / 1000)) * 1000,
-        severity: classifyWhaleTransaction(usdAmount),
-      });
-    }
-  }
-
-  return results;
-}
-
 // ── Fetch through server proxy ──────────────────────────────
-// We rotate through wallets across calls
+// Rotate through wallets, 4 per refresh to stay within Helius rate limits
 let walletRotationIndex = 0;
+const WALLETS_PER_REFRESH = 4;
+const MAX_CONCURRENT = 2; // max parallel API calls at once
 
 async function fetchViaProxy(): Promise<WhaleTransaction[]> {
   const walletEntries = Object.entries(KNOWN_WALLETS);
   const solPrice = await fetchSolPrice();
   const results: WhaleTransaction[] = [];
 
-  // Check 12 wallets per refresh (rotating)
   const walletsToCheck: [string, string][] = [];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < WALLETS_PER_REFRESH; i++) {
     walletsToCheck.push(walletEntries[walletRotationIndex % walletEntries.length] as [string, string]);
     walletRotationIndex++;
   }
 
-  const fetches = walletsToCheck.map(async ([address, label]) => {
-    try {
-      const res = await fetch(`/api/whale-transactions?wallet=${address}`, {
-        signal: AbortSignal.timeout(12000),
-      });
-      if (!res.ok) {
-        console.warn(`[whale-watch] Proxy returned ${res.status} for ${label}`);
-        return [];
-      }
-      const data = await res.json();
-
-      if (data.source === 'helius') {
-        return parseHeliusTxs(data.transactions || [], address, label, solPrice);
-      } else if (data.source === 'rpc') {
-        return parseRpcTxs(data, address, label, solPrice);
-      }
-      return [];
-    } catch (e: any) {
-      console.warn(`[whale-watch] Failed for ${label}: ${e.message}`);
-      return [];
-    }
-  });
-
-  const allResults = await Promise.all(fetches);
-  for (const batch of allResults) {
-    results.push(...batch);
+  // Process in batches of MAX_CONCURRENT to avoid rate-limiting
+  for (let i = 0; i < walletsToCheck.length; i += MAX_CONCURRENT) {
+    const batch = walletsToCheck.slice(i, i + MAX_CONCURRENT);
+    const batchResults = await Promise.all(
+      batch.map(async ([address, label]) => {
+        try {
+          const res = await fetch(`/api/whale-transactions?wallet=${address}`, {
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) {
+            console.warn(`[whale-watch] Proxy returned ${res.status} for ${label}`);
+            return [];
+          }
+          const data = await res.json();
+          if (data.source === 'helius') {
+            return parseHeliusTxs(data.transactions || [], address, label, solPrice);
+          }
+          return [];
+        } catch (e: any) {
+          console.warn(`[whale-watch] Failed for ${label}: ${e.message}`);
+          return [];
+        }
+      }),
+    );
+    for (const batch of batchResults) results.push(...batch);
   }
 
   console.log(`[whale-watch] Fetched ${results.length} whale txs from ${walletsToCheck.map(w => w[1]).join(', ')}`);

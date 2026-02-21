@@ -18,7 +18,7 @@ import { mlWorker } from '@/services/ml-worker';
 import { clusterNewsHybrid } from '@/services/clustering';
 import { debounce, loadFromStorage, saveToStorage, isMobileDevice, setTheme, getCurrentTheme } from '@/utils';
 import { escapeHtml } from '@/utils/sanitize';
-import { fetchNetworkStatus, getPriorityFeeLevels } from '@/services/solana-rpc';
+import { fetchNetworkStatus } from '@/services/solana-rpc';
 import { fetchTrendingTokens } from '@/services/token-radar';
 import { fetchDeFiOverview } from '@/services/defi-overview';
 import { fetchWhaleTransactions } from '@/services/whale-watch';
@@ -45,7 +45,6 @@ import {
   DeFiOverviewPanel,
   MevDashboardPanel,
   LiquidStakingPanel,
-  PriorityFeesPanel,
   NFTTrackerPanel,
   GovernancePanel,
   TokenAnalyzePanel,
@@ -251,10 +250,6 @@ export class App {
     const defiOverview = new DeFiOverviewPanel();
     this.panels['defi-overview'] = defiOverview;
 
-    // Priority Fees — real-time fee levels
-    const priorityFees = new PriorityFeesPanel();
-    this.panels['priority-fees'] = priorityFees;
-
     // MEV & Jito Dashboard
     const mevDashboard = new MevDashboardPanel();
     this.panels['mev-dashboard'] = mevDashboard;
@@ -369,44 +364,24 @@ export class App {
     try {
       const status = await fetchNetworkStatus();
 
-      const feeLevels = getPriorityFeeLevels(status.medianPriorityFee);
-      const feeLookup: Record<string, number> = {};
-      feeLevels.forEach(l => { feeLookup[l.level] = l.fee; });
+      // Helius fee levels → panel format
+      const fl = status.feeLevels;
 
       const panel = this.panels['network-status'] as NetworkStatusPanel;
       panel?.update({
-        ...status,
+        tps: status.tps,
+        slot: status.slot,
+        epoch: status.epoch,
+        epochProgress: status.epochProgress,
+        validatorCount: status.validatorCount,
+        delinquentCount: status.delinquentCount,
         totalStakeSOL: status.totalStake,
-        priorityFeeLevels: {
-          low: feeLookup['low'] || 0,
-          medium: feeLookup['medium'] || 0,
-          high: feeLookup['high'] || 0,
-          turbo: feeLookup['turbo'] || 0,
-        },
+        feeLevels: fl,
+        health: status.health,
+        timestamp: status.timestamp,
       });
 
-      const feesPanel = this.panels['priority-fees'] as PriorityFeesPanel;
 
-      // Use real percentiles from RPC data
-      const p25 = status.feePercentiles?.p25 || 0;
-      const p50 = status.feePercentiles?.p50 || 0;
-      const p75 = status.feePercentiles?.p75 || 0;
-      const p99 = status.feePercentiles?.p99 || 0;
-
-      feesPanel?.update({
-        levels: feeLevels.map(l => ({
-          label: l.label,
-          lamports: Math.round(l.fee / 1000),
-          microLamports: l.fee,
-          description: l.label,
-        })),
-        percentiles: { p25, p50, p75, p99 },
-        avgFee: status.avgPriorityFee,
-        medianFee: status.medianPriorityFee,
-        congestionLevel: status.tps < 1000 ? 'high' : status.tps < 2500 ? 'normal' : 'low',
-        recentSlots: 150,
-        timestamp: Date.now(),
-      });
     } catch (e) {
       console.error('[SolanaApp] Failed to load network status:', e);
     } finally {
@@ -498,9 +473,10 @@ export class App {
 
       // Solana-native source names (these always pass the filter)
       const SOLANA_NATIVE_SOURCES = new Set([
-        'Solana News', 'Solana Foundation', 'Helius Blog', 'Jito Blog',
+        'Solana News', 'Helius Blog', 'Jito Blog',
         'Jupiter Blog', 'Phantom Blog', 'SolanaFloor', 'The Solana Daily',
-        'Solana Compass', 'Superteam Blog', 'Solana Dev Blog',
+        'Solana Compass', 'Superteam Blog', 'Marinade Blog',
+        'Drift Blog', 'Orca Blog', 'Magic Eden Blog',
       ]);
 
       // Solana-relevant keywords for filtering general crypto feeds

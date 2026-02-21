@@ -19,7 +19,6 @@ export { WhaleWatchPanel } from './WhaleWatchPanel';
 export { DeFiOverviewPanel } from './DeFiOverviewPanel';
 export { MevDashboardPanel } from './MevDashboardPanel';
 export { LiquidStakingPanel } from './LiquidStakingPanel';
-export { PriorityFeesPanel } from './PriorityFeesPanel';
 export { NFTTrackerPanel } from './NFTTrackerPanel';
 export { GovernancePanel } from './GovernancePanel';
 export { TokenAnalyzePanel } from './TokenAnalyzePanel';

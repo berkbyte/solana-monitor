@@ -14,6 +14,7 @@ interface PriorityFeeData {
   avgFee: number;
   medianFee: number;
   congestionLevel: 'low' | 'normal' | 'high' | 'extreme';
+  nonZeroRatio: number;
   recentSlots: number;
   timestamp: number;
 }
@@ -45,6 +46,7 @@ export class PriorityFeesPanel extends Panel {
 
     const d = this.data;
     const congestionColor = this.getCongestionColor(d.congestionLevel);
+    const nonZeroPct = Math.round(d.nonZeroRatio * 100);
 
     this.content.innerHTML = `
       <div class="fee-overview">
@@ -53,6 +55,21 @@ export class PriorityFeesPanel extends Panel {
           <span class="fee-congestion-value" style="color: ${congestionColor}">
             ${d.congestionLevel.toUpperCase()}
           </span>
+        </div>
+
+        <div class="fee-stats-row">
+          <div class="fee-stat">
+            <span class="fee-stat-label">Median Fee</span>
+            <span class="fee-stat-value">${d.medianFee.toLocaleString()} <small>μ◎/CU</small></span>
+          </div>
+          <div class="fee-stat">
+            <span class="fee-stat-label">Average Fee</span>
+            <span class="fee-stat-value">${d.avgFee.toLocaleString()} <small>μ◎/CU</small></span>
+          </div>
+          <div class="fee-stat">
+            <span class="fee-stat-label">Fee Slots</span>
+            <span class="fee-stat-value">${nonZeroPct}% <small>of ${d.recentSlots}</small></span>
+          </div>
         </div>
 
         <div class="fee-levels">
@@ -71,7 +88,7 @@ export class PriorityFeesPanel extends Panel {
         </div>
 
         <div class="fee-percentiles">
-          <span class="fee-section-title">Fee Percentiles (last ${d.recentSlots} slots)</span>
+          <span class="fee-section-title">Non-Zero Fee Percentiles (last ${d.recentSlots} slots)</span>
           <div class="fee-percentile-grid">
             <div class="fee-pct">
               <span class="pct-label">P25</span>
