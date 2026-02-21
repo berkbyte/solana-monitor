@@ -8,7 +8,7 @@
  */
 
 // Clustering constants
-export const SIMILARITY_THRESHOLD = 0.5;
+export const SIMILARITY_THRESHOLD = 0.25;
 
 export const STOP_WORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',

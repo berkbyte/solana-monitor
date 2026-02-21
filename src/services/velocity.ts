@@ -45,11 +45,6 @@ function calculateVelocityLevel(sourcesPerHour: number): VelocityLevel {
 export function calculateVelocity(cluster: ClusteredEvent): VelocityMetrics {
   const items = cluster.allItems;
 
-  if (items.length <= 1) {
-    const { sentiment, score } = analyzeSentiment(cluster.primaryTitle);
-    return { sourcesPerHour: 0, level: 'normal', trend: 'stable', sentiment, sentimentScore: score };
-  }
-
   const timeSpanMs = cluster.lastUpdated.getTime() - cluster.firstSeen.getTime();
   const timeSpanHours = Math.max(timeSpanMs / HOUR_MS, 0.25);
   const sourcesPerHour = items.length / timeSpanHours;

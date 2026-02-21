@@ -179,7 +179,7 @@ export async function fetchCategoryFeeds(
     onBatch?: (items: NewsItem[]) => void;
   } = {}
 ): Promise<NewsItem[]> {
-  const topLimit = 20;
+  const topLimit = 100;
   const batchSize = options.batchSize ?? 5;
   const batches = chunkArray(feeds, batchSize);
   const topItems: NewsItem[] = [];
