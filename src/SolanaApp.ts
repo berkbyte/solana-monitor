@@ -11,7 +11,6 @@ import {
 } from '@/config';
 import {
   fetchCategoryFeeds,
-  fetchCrypto,
   initDB,
 } from '@/services';
 import { mlWorker } from '@/services/ml-worker';
@@ -21,7 +20,7 @@ import { escapeHtml } from '@/utils/sanitize';
 import { fetchNetworkStatus } from '@/services/solana-rpc';
 import { fetchTrendingTokens } from '@/services/token-radar';
 import { fetchDeFiOverview } from '@/services/defi-overview';
-import { fetchWhaleTransactions } from '@/services/whale-watch';
+
 import { fetchMevStats } from '@/services/mev-jito';
 import { fetchLiquidStaking } from '@/services/liquid-staking';
 import { fetchNFTData } from '@/services/nft-tracker';
@@ -33,15 +32,12 @@ import {
   Panel,
   MobileWarningModal,
   NewsPanel,
-  MarketPanel,
   InsightsPanel,
   LiveChartsPanel,
-  MacroSignalsPanel,
   ETFFlowsPanel,
-  StablecoinPanel,
   NetworkStatusPanel,
   TokenRadarPanel,
-  WhaleWatchPanel,
+
   DeFiOverviewPanel,
   MevDashboardPanel,
   LiquidStakingPanel,
@@ -242,10 +238,6 @@ export class App {
     const tokenRadar = new TokenRadarPanel();
     this.panels['token-radar'] = tokenRadar;
 
-    // Whale Watch — large transaction feed
-    const whaleWatch = new WhaleWatchPanel();
-    this.panels['whale-watch'] = whaleWatch;
-
     // DeFi Overview — TVL, protocols, LSTs
     const defiOverview = new DeFiOverviewPanel();
     this.panels['defi-overview'] = defiOverview;
@@ -278,18 +270,8 @@ export class App {
     const insightsPanel = new InsightsPanel();
     this.panels['insights'] = insightsPanel;
 
-    // Macro Signals
-    this.panels['macro-signals'] = new MacroSignalsPanel();
-
-    // Markets
-    const marketsPanel = new MarketPanel();
-    this.panels['markets'] = marketsPanel;
-
     // ETF Flows
     this.panels['etf-flows'] = new ETFFlowsPanel();
-
-    // Stablecoins
-    this.panels['stablecoins'] = new StablecoinPanel();
 
     // Token Analyze panel
     const tokenAnalyzePanel = new TokenAnalyzePanel();
@@ -344,13 +326,11 @@ export class App {
       this.loadSolanaNetwork(),
       this.loadTokenData(),
       this.loadDeFiData(),
-      this.loadWhaleData(),
       this.loadMevData(),
       this.loadLSTData(),
       this.loadNftData(),
       this.loadGovernanceData(),
       this.loadNews(),
-      this.loadMarkets(),
     ];
 
     await Promise.allSettled(tasks);
@@ -531,54 +511,6 @@ export class App {
     }
   }
 
-  // Market data (crypto)
-  private async loadMarkets(): Promise<void> {
-    if (this.inFlight.has('markets')) return;
-    this.inFlight.add('markets');
-    try {
-      const [cryptoResult] = await Promise.allSettled([
-        fetchCrypto(),
-      ]);
-
-      if (cryptoResult.status === 'fulfilled') {
-        const marketsPanel = this.panels['markets'] as MarketPanel;
-        if (marketsPanel) {
-          // Map CryptoData to MarketData shape (add missing 'display' field)
-          const marketData = cryptoResult.value.map((c: any) => ({
-            symbol: c.symbol,
-            name: c.name,
-            display: c.symbol,
-            price: c.price,
-            change: c.change,
-            sparkline: c.sparkline,
-          }));
-          marketsPanel.renderMarkets(marketData);
-        }
-      }
-    } catch (e) {
-      console.error('[SolanaApp] Failed to load markets:', e);
-    } finally {
-      this.inFlight.delete('markets');
-    }
-  }
-
-  // Whale Watch — large wallet movements
-  private async loadWhaleData(): Promise<void> {
-    if (this.inFlight.has('whale-data')) return;
-    this.inFlight.add('whale-data');
-    try {
-      const whales = await fetchWhaleTransactions();
-      const panel = this.panels['whale-watch'] as WhaleWatchPanel;
-      if (panel && whales.length > 0) {
-        panel.update(whales);
-      }
-    } catch (e) {
-      console.error('[SolanaApp] Failed to load whale data:', e);
-    } finally {
-      this.inFlight.delete('whale-data');
-    }
-  }
-
   // MEV & Jito stats
   private async loadMevData(): Promise<void> {
     if (this.inFlight.has('mev-data')) return;
@@ -675,7 +607,6 @@ export class App {
     // Core Solana data — fast intervals
     this.scheduleRefresh('solana-network', () => this.loadSolanaNetwork(), REFRESH_INTERVALS.solanaNetwork);
     this.scheduleRefresh('token-data', () => this.loadTokenData(), REFRESH_INTERVALS.tokenRadar);
-    this.scheduleRefresh('whale-data', () => this.loadWhaleData(), REFRESH_INTERVALS.whaleWatch);
     this.scheduleRefresh('mev-data', () => this.loadMevData(), REFRESH_INTERVALS.mev);
 
     // DeFi & staking — moderate intervals
@@ -686,7 +617,6 @@ export class App {
 
     // News and markets — moderate intervals
     this.scheduleRefresh('news', () => this.loadNews(), REFRESH_INTERVALS.feeds);
-    this.scheduleRefresh('markets', () => this.loadMarkets(), REFRESH_INTERVALS.markets);
   }
 
   // =========================================================================

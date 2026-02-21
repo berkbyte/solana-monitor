@@ -76,16 +76,6 @@ export const DESKTOP_PARITY_FEATURES: DesktopParityFeature[] = [
     priority: 2,
   },
   {
-    id: 'market-panel',
-    panel: 'MarketPanel',
-    serviceFiles: ['src/services/markets.ts', 'src/services/polymarket.ts'],
-    apiRoutes: ['/api/coingecko', '/api/polymarket', '/api/finnhub', '/api/yahoo-finance'],
-    apiHandlers: ['api/coingecko.js', 'api/polymarket.js', 'api/finnhub.js', 'api/yahoo-finance.js'],
-    locality: 'fully-local',
-    fallback: 'Multi-source market fetchers degrade to remaining providers and cached values.',
-    priority: 2,
-  },
-  {
     id: 'wingbits-enrichment',
     panel: 'Map layers (flight enrichment)',
     serviceFiles: ['src/services/wingbits.ts'],
@@ -119,7 +109,6 @@ export function getDesktopReadinessChecks(localBackendEnabled: boolean): Desktop
     { id: 'map', label: 'Map rendering (local layers + static geo assets)', ready: true },
     { id: 'core-intel', label: 'Core intelligence panels (Live News, Strategic Risk)', ready: true },
     { id: 'summaries', label: 'Summaries (provider-backed or browser fallback)', ready: isFeatureAvailable('aiGroq') || isFeatureAvailable('aiOpenRouter') },
-    { id: 'market', label: 'Market panel live data paths', ready: true },
     { id: 'live-tracking', label: 'At least one live-tracking mode (AIS or OpenSky)', ready: liveTrackingReady },
   ];
 }

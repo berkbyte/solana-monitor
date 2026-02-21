@@ -10,9 +10,6 @@ export {
   STORAGE_KEYS,
 } from './variants/base';
 
-// Market data (shared — crypto markets, sectors, commodities)
-export { SECTORS, COMMODITIES, MARKET_SYMBOLS, CRYPTO_MAP } from './markets';
-
 // Solana feeds configuration
 export {
   FEEDS,

@@ -4,9 +4,9 @@
  *
  * Handles:
  *   /api/rss-proxy?url=...   → fetch & proxy RSS feeds
- *   /api/stablecoin-markets  → CoinGecko stablecoin data
  *   /api/etf-flows           → Yahoo Finance ETF data
- *   /api/token-data          → (pass-through, not used yet)
+ *   /api/summarize           → AI summarization (Groq / OpenRouter)
+ *   /api/x-api               → Twitter CA / X search
  */
 
 import type { Plugin } from 'vite';
@@ -103,93 +103,6 @@ async function handleRssProxy(req: any, res: any) {
   }
 }
 
-// ───────────────────────── Stablecoin handler ─────────────────────────
-let stablecoinCache: any = null;
-let stablecoinCacheTs = 0;
-
-async function handleStablecoinMarkets(_req: any, res: any) {
-  const now = Date.now();
-  if (stablecoinCache && now - stablecoinCacheTs < 120_000) {
-    return json(res, stablecoinCache);
-  }
-
-  const coins = 'tether,usd-coin,dai,first-digital-usd,ethena-usde';
-  const cgUrl = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coins}&sparkline=false&price_change_percentage=1h,24h,7d`;
-
-  try {
-    const cgRes = await fetchWithTimeout(cgUrl, {
-      headers: { 'Accept': 'application/json' },
-    }, 10000);
-
-    if (!cgRes.ok) {
-      const fallback = buildStablecoinFallback();
-      return json(res, fallback);
-    }
-
-    const data = await cgRes.json();
-    const stablecoins = data.map((c: any) => {
-      const dev = c.current_price ? Math.abs(1 - c.current_price) * 100 : 0;
-      const pegStatus = dev < 0.1 ? 'ON PEG' : dev < 1 ? 'SLIGHT DEPEG' : 'DEPEGGED';
-      return {
-        id: c.id,
-        symbol: c.symbol?.toUpperCase(),
-        name: c.name,
-        price: c.current_price,
-        deviation: +dev.toFixed(4),
-        pegStatus,
-        marketCap: c.market_cap,
-        volume24h: c.total_volume,
-        change24h: c.price_change_percentage_24h_in_currency ?? c.price_change_percentage_24h ?? 0,
-        change7d: c.price_change_percentage_7d_in_currency ?? 0,
-        image: c.image || '',
-      };
-    });
-
-    const totalMcap = stablecoins.reduce((s: number, c: any) => s + (c.marketCap || 0), 0);
-    const totalVol = stablecoins.reduce((s: number, c: any) => s + (c.volume24h || 0), 0);
-    const depegged = stablecoins.filter((c: any) => c.pegStatus === 'DEPEGGED').length;
-
-    const result = {
-      timestamp: new Date().toISOString(),
-      summary: {
-        totalMarketCap: totalMcap,
-        totalVolume24h: totalVol,
-        coinCount: stablecoins.length,
-        depeggedCount: depegged,
-        healthStatus: depegged === 0 ? 'HEALTHY' : depegged >= 2 ? 'WARNING' : 'CAUTION',
-      },
-      stablecoins,
-    };
-
-    stablecoinCache = result;
-    stablecoinCacheTs = now;
-    return json(res, result);
-  } catch (e: any) {
-    console.error('[stablecoin-markets] Error:', e.message);
-    return json(res, buildStablecoinFallback());
-  }
-}
-
-function buildStablecoinFallback() {
-  return {
-    timestamp: new Date().toISOString(),
-    summary: {
-      totalMarketCap: 145_000_000_000,
-      totalVolume24h: 58_000_000_000,
-      coinCount: 5,
-      depeggedCount: 0,
-      healthStatus: 'HEALTHY',
-    },
-    stablecoins: [
-      { id: 'tether', symbol: 'USDT', name: 'Tether', price: 1.0001, deviation: 0.01, pegStatus: 'ON PEG', marketCap: 83_000_000_000, volume24h: 38_000_000_000, change24h: 0.02, change7d: 0.01, image: '' },
-      { id: 'usd-coin', symbol: 'USDC', name: 'USD Coin', price: 0.9999, deviation: 0.01, pegStatus: 'ON PEG', marketCap: 32_000_000_000, volume24h: 12_000_000_000, change24h: 0.01, change7d: -0.02, image: '' },
-      { id: 'dai', symbol: 'DAI', name: 'Dai', price: 0.9998, deviation: 0.02, pegStatus: 'ON PEG', marketCap: 5_300_000_000, volume24h: 400_000_000, change24h: -0.01, change7d: 0.01, image: '' },
-      { id: 'first-digital-usd', symbol: 'FDUSD', name: 'First Digital USD', price: 1.0001, deviation: 0.01, pegStatus: 'ON PEG', marketCap: 2_800_000_000, volume24h: 3_500_000_000, change24h: 0.02, change7d: 0.01, image: '' },
-      { id: 'ethena-usde', symbol: 'USDE', name: 'Ethena USDe', price: 1.0003, deviation: 0.03, pegStatus: 'ON PEG', marketCap: 2_500_000_000, volume24h: 200_000_000, change24h: 0.01, change7d: -0.01, image: '' },
-    ],
-  };
-}
-
 // ───────────────────────── ETF Flows handler ─────────────────────────
 let etfCache: any = null;
 let etfCacheTs = 0;
@@ -260,85 +173,6 @@ async function handleEtfFlows(_req: any, res: any) {
 
   etfCache = result;
   etfCacheTs = now;
-  return json(res, result);
-}
-
-// ───────────────────────── Macro Signals handler ─────────────────────────
-let macroCache: any = null;
-let macroCacheTs = 0;
-
-async function handleMacroSignals(_req: any, res: any) {
-  const now = Date.now();
-  if (macroCache && now - macroCacheTs < 180_000) return json(res, macroCache);
-
-  // Fetch real Fear & Greed data
-  let fgValue: number | null = 62;
-  let fgStatus = 'GREED';
-  let fgHistory: Array<{ value: number; date: string }> = [];
-  try {
-    const fgRes = await fetchWithTimeout('https://api.alternative.me/fng/?limit=7', {}, 5000);
-    if (fgRes.ok) {
-      const fgData = await fgRes.json();
-      if (fgData.data?.length > 0) {
-        fgValue = parseInt(fgData.data[0].value);
-        fgStatus = fgData.data[0].value_classification?.toUpperCase() || 'NEUTRAL';
-        fgHistory = fgData.data.map((d: any) => ({ value: parseInt(d.value), date: d.timestamp }));
-      }
-    }
-  } catch { /* use defaults */ }
-
-  // Fetch BTC price for technical data
-  let btcPrice: number | null = null;
-  let btcSparkline: number[] = [];
-  try {
-    const btcRes = await fetchWithTimeout(
-      'https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&sparkline=true',
-      { headers: { Accept: 'application/json' } }, 8000
-    );
-    if (btcRes.ok) {
-      const btcData = await btcRes.json();
-      btcPrice = btcData.market_data?.current_price?.usd || null;
-      btcSparkline = btcData.market_data?.sparkline_7d?.price?.slice(-48) || [];
-    }
-  } catch { /* use defaults */ }
-
-  // Build macro signals in the format MacroSignalsPanel expects
-  const sma50 = btcPrice ? Math.round(btcPrice * 0.95) : null;
-  const sma200 = btcPrice ? Math.round(btcPrice * 0.88) : null;
-  const vwap30d = btcPrice ? Math.round(btcPrice * 0.97) : null;
-  const mayerMultiple = btcPrice && sma200 ? +(btcPrice / sma200).toFixed(2) : null;
-
-  const btcTrendStatus = btcPrice && sma50 && sma200
-    ? (btcPrice > sma50 && btcPrice > sma200 ? 'BULLISH' : btcPrice > sma200 ? 'NEUTRAL' : 'BEARISH')
-    : 'UNKNOWN';
-
-  // Determine overall verdict
-  const bullishSignals = [
-    fgValue !== null && fgValue > 50,
-    btcTrendStatus === 'BULLISH',
-  ].filter(Boolean).length;
-  const totalSignals = 7;
-  const verdict = bullishSignals >= 4 ? 'BUY' : bullishSignals >= 2 ? 'HOLD' : 'CASH';
-
-  const result = {
-    timestamp: new Date().toISOString(),
-    verdict,
-    bullishCount: bullishSignals,
-    totalCount: totalSignals,
-    signals: {
-      liquidity: { status: 'NEUTRAL', value: -1.2, sparkline: Array.from({ length: 30 }, (_, i) => -3 + Math.sin(i / 5) * 2 + Math.random()) },
-      flowStructure: { status: 'RISK-ON', btcReturn5: 2.8, qqqReturn5: 1.5 },
-      macroRegime: { status: 'NORMAL', qqqRoc20: 3.2, xlpRoc20: 1.1 },
-      technicalTrend: { status: btcTrendStatus, btcPrice, sma50, sma200, vwap30d, mayerMultiple, sparkline: btcSparkline },
-      hashRate: { status: 'GROWING', change30d: 4.2 },
-      miningCost: { status: 'PROFITABLE' },
-      fearGreed: { status: fgStatus, value: fgValue, history: fgHistory },
-    },
-    meta: { qqqSparkline: Array.from({ length: 30 }, (_, i) => 440 + Math.sin(i / 4) * 15 + Math.random() * 5) },
-  };
-
-  macroCache = result;
-  macroCacheTs = now;
   return json(res, result);
 }
 
@@ -794,50 +628,6 @@ async function handleXApi(req: any, res: any): Promise<void> {
   }
 }
 
-// ───────────────────────── Whale Transactions Proxy ─────────────────────────
-// Proxies Helius Enhanced TX API server-side (no public RPC fallback)
-const whaleCache = new Map<string, { data: any; ts: number }>();
-const WHALE_CACHE_TTL = 15_000; // 15s cache per wallet
-
-async function handleWhaleTransactions(req: any, res: any) {
-  const qs = new URL(req.url!, `http://${req.headers.host}`).searchParams;
-  const wallet = qs.get('wallet');
-  if (!wallet) return json(res, { error: 'wallet param required' }, 400);
-
-  // Check cache
-  const cached = whaleCache.get(wallet);
-  if (cached && Date.now() - cached.ts < WHALE_CACHE_TTL) {
-    return json(res, cached.data);
-  }
-
-  const HELIUS_KEY = (() => {
-    const rpc = getEnv('VITE_HELIUS_RPC_URL');
-    if (!rpc) return null;
-    try { return new URL(rpc).searchParams.get('api-key'); } catch { return null; }
-  })();
-
-  // Strategy 1: Helius Enhanced Transactions API
-  if (HELIUS_KEY) {
-    try {
-      const heliusUrl = `https://api.helius.xyz/v0/addresses/${wallet}/transactions?api-key=${HELIUS_KEY}&limit=100`;
-      const r = await fetchWithTimeout(heliusUrl, {}, 8000);
-      if (r.ok) {
-        const txs = await r.json();
-        console.log(`[whale-proxy] Helius ✅ ${wallet.slice(0, 8)}… → ${txs.length} txs`);
-        const result = { source: 'helius', transactions: txs };
-        whaleCache.set(wallet, { data: result, ts: Date.now() });
-        return json(res, result);
-      }
-      console.warn(`[whale-proxy] Helius ${r.status} for ${wallet.slice(0, 8)}...`);
-    } catch (e: any) {
-      console.warn(`[whale-proxy] Helius error for ${wallet.slice(0, 8)}...: ${e.message}`);
-    }
-  }
-
-  // No Helius key or Helius failed
-  return json(res, { error: 'Helius API unavailable', source: 'none', transactions: [] }, 502);
-}
-
 // ───────────────────────── Body parser helper ─────────────────────────
 function parseBody(req: any): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -943,14 +733,8 @@ export function devApiPlugin(): Plugin {
           if (url.startsWith('/api/rss-proxy')) {
             return await handleRssProxy(req, res);
           }
-          if (url.startsWith('/api/stablecoin-markets')) {
-            return await handleStablecoinMarkets(req, res);
-          }
           if (url.startsWith('/api/etf-flows')) {
             return await handleEtfFlows(req, res);
-          }
-          if (url.startsWith('/api/macro-signals')) {
-            return await handleMacroSignals(req, res);
           }
           if (url.startsWith('/api/polymarket')) {
             return await handlePolymarket(req, res);
@@ -972,9 +756,6 @@ export function devApiPlugin(): Plugin {
           }
           if (url.startsWith('/api/x-api')) {
             return await handleXApi(req, res);
-          }
-          if (url.startsWith('/api/whale-transactions')) {
-            return await handleWhaleTransactions(req, res);
           }
           if (url.startsWith('/api/summarize')) {
             return await handleSummarize(req, res);

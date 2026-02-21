@@ -11,9 +11,7 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'live-charts': { name: 'Live Charts', enabled: true, priority: 1 },
   'token-analyze': { name: 'Token Analyze', enabled: true, priority: 1 },
   'token-radar': { name: 'Token Radar', enabled: true, priority: 1 },
-  'whale-watch': { name: 'Whale Watch', enabled: true, priority: 1 },
   'defi-overview': { name: 'DeFi Overview', enabled: true, priority: 1 },
-  markets: { name: 'Crypto Markets', enabled: true, priority: 1 },
 
   // ── Tier 2: Network & On-chain ──
   'network-status': { name: 'Network Status', enabled: true, priority: 1 },
@@ -25,9 +23,7 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'solana-news': { name: 'Solana News', enabled: true, priority: 1 },
 
   // ── Tier 4: Market Context ──
-  stablecoins: { name: 'Stablecoins', enabled: true, priority: 2 },
   'etf-flows': { name: 'Crypto ETF Tracker', enabled: true, priority: 2 },
-  'macro-signals': { name: 'Market Radar', enabled: true, priority: 2 },
 
   // ── Tier 5: Niche ──
   'nft-tracker': { name: 'NFT Tracker', enabled: true, priority: 2 },

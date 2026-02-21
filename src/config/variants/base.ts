@@ -2,7 +2,6 @@
 import type { PanelConfig, MapLayers } from '@/types';
 
 // Shared exports (re-exported by all variants)
-export { SECTORS, COMMODITIES, MARKET_SYMBOLS } from '../markets';
 
 // API URLs - Solana Terminal endpoints
 export const API_URLS = {
@@ -17,10 +16,6 @@ export const API_URLS = {
   // Kept from original
   finnhub: (symbols: string[]) =>
     `/api/finnhub?symbols=${symbols.map(s => encodeURIComponent(s)).join(',')}`,
-  yahooFinance: (symbol: string) =>
-    `/api/yahoo-finance?symbol=${encodeURIComponent(symbol)}`,
-  coingecko:
-    '/api/coingecko?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true',
   polymarket: '/api/polymarket?closed=false&order=volume&ascending=false&limit=100',
   // Tech/dev
   githubTrending: (language: string = 'rust', since: string = 'daily') =>
@@ -32,11 +27,9 @@ export const API_URLS = {
 // Refresh intervals - Solana Terminal (faster for on-chain data)
 export const REFRESH_INTERVALS = {
   feeds: 3 * 60 * 1000,           // News feeds: 3 min
-  markets: 60 * 1000,             // Market data: 1 min
   crypto: 30 * 1000,              // Crypto prices: 30s
   solanaNetwork: 30 * 1000,       // Network status: 30s (Helius RPC)
   tokenRadar: 5 * 60 * 1000,          // Token radar: 5 min (real discovery)
-  whaleWatch: 15 * 1000,          // Whale movements: 15s
   defi: 5 * 60 * 1000,            // DeFi TVL: 5 min
   mev: 60 * 1000,                 // MEV stats: 1 min
   liquidStaking: 5 * 60 * 1000,   // LST data: 5 min

@@ -15,7 +15,6 @@ export * from './PlaybackControl';
 // ============================================
 export { NetworkStatusPanel } from './NetworkStatusPanel';
 export { TokenRadarPanel } from './TokenRadarPanel';
-export { WhaleWatchPanel } from './WhaleWatchPanel';
 export { DeFiOverviewPanel } from './DeFiOverviewPanel';
 export { MevDashboardPanel } from './MevDashboardPanel';
 export { LiquidStakingPanel } from './LiquidStakingPanel';
@@ -27,10 +26,7 @@ export { GlobeModeSwitcher, type GlobeMode } from './GlobeModeSwitcher';
 // Panels kept from original (adapted)
 export * from './InsightsPanel';
 export * from './LiveChartsPanel';
-export * from './MacroSignalsPanel';
 export * from './ETFFlowsPanel';
-export * from './StablecoinPanel';
-export * from './MarketPanel';
 export * from './PredictionPanel';
 export * from './StatusPanel';
 export * from './ServiceStatusPanel';
