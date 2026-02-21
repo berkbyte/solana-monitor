@@ -11982,6 +11982,39 @@ body.has-critical-banner .panels-grid {
    ETF FLOWS PANEL
    ============================================ */
 .etf-flows-container { padding: 4px 0; }
+
+/* ── Header row (SOL price + source badge) ── */
+.etf-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: var(--overlay-light);
+}
+.etf-sol-price {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.etf-sol-price strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── Source badge ── */
+.etf-source-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.etf-src-live { background: rgba(0, 200, 83, 0.15); color: var(--semantic-normal); }
+.etf-src-est  { background: rgba(255, 171, 0, 0.15); color: var(--semantic-warning, #ffab00); }
+
+/* ── Summary grid ── */
 .etf-summary {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -11996,6 +12029,8 @@ body.has-critical-banner .panels-grid {
 .etf-summary-value { display: block; font-size: 13px; font-weight: 600; color: var(--accent); }
 .etf-summary-value.flow-inflow { color: var(--semantic-normal); }
 .etf-summary-value.flow-outflow { color: var(--semantic-critical); }
+
+/* ── Table ── */
 .etf-table-wrap { overflow-x: auto; }
 .etf-table {
   width: 100%;
@@ -12015,13 +12050,48 @@ body.has-critical-banner .panels-grid {
   padding: 5px 6px;
   border-bottom: 1px solid var(--overlay-light);
 }
-.etf-ticker { font-weight: 600; color: var(--accent); }
+.etf-ticker { font-weight: 600; color: var(--accent); white-space: nowrap; }
 .etf-issuer { color: var(--text-muted); font-size: 11px; }
+.etf-aum    { color: var(--text-muted); font-size: 11px; }
 .etf-flow.flow-inflow { color: var(--semantic-normal); }
 .etf-flow.flow-outflow { color: var(--semantic-critical); }
 .etf-flow.flow-neutral { color: var(--text-muted); }
-.etf-volume { color: var(--accent); }
+.etf-volume { color: var(--accent); white-space: nowrap; }
+.etf-vol-ratio {
+  display: inline-block;
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-left: 3px;
+}
 .etf-change { font-weight: 500; }
+
+/* ── Type badges (Trust / Spot / Futures) ── */
+.etf-badge {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.etf-badge-trust   { background: rgba(156, 39, 176, 0.15); color: #ce93d8; }
+.etf-badge-spot    { background: rgba(0, 200, 83, 0.12); color: var(--semantic-normal); }
+.etf-badge-futures { background: rgba(33, 150, 243, 0.15); color: #64b5f6; }
+
+/* ── Status dots (live vs estimated) ── */
+.etf-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.etf-dot-active { background: var(--semantic-normal); box-shadow: 0 0 4px var(--semantic-normal); }
+.etf-dot-est    { background: var(--text-muted); opacity: 0.5; }
 
 /* ============================================
    STABLECOIN PANEL

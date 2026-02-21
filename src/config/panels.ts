@@ -23,7 +23,7 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'solana-news': { name: 'Solana News', enabled: true, priority: 1 },
 
   // ── Tier 4: Market Context ──
-  'etf-flows': { name: 'Crypto ETF Tracker', enabled: true, priority: 2 },
+  'etf-flows': { name: 'Solana ETF Tracker', enabled: true, priority: 2 },
 
   // ── Tier 5: Niche ──
   'nft-tracker': { name: 'NFT Tracker', enabled: true, priority: 2 },

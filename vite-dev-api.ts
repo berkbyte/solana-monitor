@@ -4,7 +4,7 @@
  *
  * Handles:
  *   /api/rss-proxy?url=...   → fetch & proxy RSS feeds
- *   /api/etf-flows           → Yahoo Finance ETF data
+ *   /api/etf-flows           → Solana ETF tracker data
  *   /api/summarize           → AI summarization (Groq / OpenRouter)
  *   /api/x-api               → Twitter CA / X search
  */
@@ -115,24 +115,31 @@ async function handleEtfFlows(_req: any, res: any) {
 
   // Fetch real SOL price for flow estimates
   let solPrice = 150;
+  let solChange24h = 0;
   try {
-    const solRes = await fetchWithTimeout('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true', {}, 5000);
+    const solRes = await fetchWithTimeout(
+      'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true',
+      {}, 5000,
+    );
     if (solRes.ok) {
       const solData = await solRes.json();
-      solPrice = solData.solana?.usd || 150;
+      solPrice = solData.solana?.usd ?? 150;
+      solChange24h = solData.solana?.usd_24h_change ?? 0;
     }
   } catch { /* use default */ }
 
-  // For Solana ETFs, most are either new/proposed or trusts
-  // Generate realistic flow data based on market conditions
+  // Generate deterministic-per-day Solana ETF flow estimates
+  const dayStr = new Date().toISOString().slice(0, 10);
   const results = ETF_LIST.map((etf: any) => {
     const isTrust = etf.type === 'trust';
-    const baseAum = isTrust ? 800_000_000 : (50_000_000 + Math.random() * 400_000_000);
-    const dailyFlowPct = (Math.random() - 0.45) * 6; // slight positive bias
-    const estFlow = Math.round(baseAum * dailyFlowPct / 100);
-    const volume = Math.round(baseAum * (0.02 + Math.random() * 0.08));
-    const avgVolume = Math.round(volume * (0.8 + Math.random() * 0.4));
-    const priceChange = (Math.random() - 0.45) * 4;
+    const baseAum = isTrust ? 800_000_000 : 120_000_000;
+    const seed = simpleHash(etf.ticker + dayStr);
+    const jitter = (seed % 1000) / 1000;
+    const flowPct = (jitter - 0.45) * 5;
+    const estFlow = Math.round(baseAum * flowPct / 100);
+    const volume = Math.round(baseAum * (0.02 + jitter * 0.06));
+    const avgVolume = Math.round(volume * (0.85 + jitter * 0.3));
+    const priceChange = solChange24h + (jitter - 0.5) * 1.5;
     const direction = estFlow > 1_000_000 ? 'inflow' as const
       : estFlow < -1_000_000 ? 'outflow' as const
       : 'neutral' as const;
@@ -141,14 +148,15 @@ async function handleEtfFlows(_req: any, res: any) {
       ticker: etf.ticker,
       issuer: etf.issuer,
       type: etf.type,
-      price: +(solPrice * (0.95 + Math.random() * 0.1)).toFixed(2),
+      status: 'estimated' as const,
+      price: +(solPrice * (0.97 + jitter * 0.06)).toFixed(2),
       priceChange: +priceChange.toFixed(2),
       volume,
       avgVolume,
       volumeRatio: +(volume / Math.max(avgVolume, 1)).toFixed(2),
       direction,
       estFlow,
-      aum: Math.round(baseAum),
+      aum: Math.round(baseAum * (0.8 + jitter * 0.4)),
     };
   });
 
@@ -160,11 +168,14 @@ async function handleEtfFlows(_req: any, res: any) {
     timestamp: new Date().toISOString(),
     asset: 'SOL',
     solPrice,
+    solChange24h,
+    dataSource: 'estimated',
     etfs: results,
     summary: {
+      etfCount: results.length,
+      activeCount: 0,
       totalEstFlow: totalFlow,
       netDirection: totalFlow > 5_000_000 ? 'NET INFLOW' : totalFlow < -5_000_000 ? 'NET OUTFLOW' : 'NEUTRAL',
-      etfCount: results.length,
       totalVolume: results.reduce((s: number, r: any) => s + r.volume, 0),
       inflowCount,
       outflowCount,
@@ -174,6 +185,14 @@ async function handleEtfFlows(_req: any, res: any) {
   etfCache = result;
   etfCacheTs = now;
   return json(res, result);
+}
+
+function simpleHash(str: string): number {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
 }
 
 // ───────────────────────── Polymarket handler ─────────────────────────

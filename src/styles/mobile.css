@@ -1178,6 +1178,15 @@ html, body {
   .etf-table {
     font-size: 10px !important;
   }
+  .etf-summary {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .etf-header-row {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .etf-badge { font-size: 7px !important; }
+  .etf-aum { display: none; }  /* hide AUM on mobile to save space */
 
   /* Wrap ETF in horizontal scroll container */
   .panel-content:has(.etf-table) {
