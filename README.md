@@ -2,7 +2,7 @@
 
 ### 🌐 [solanamonitor.app](https://solanamonitor.app)
 
-**Real-time Solana intelligence dashboard** — live on-chain data, DeFi analytics, whale tracking, and market signals in a unified interface powered by deck.gl 3D globe.
+**Real-time Solana blockchain intelligence dashboard** — live on-chain data, DeFi analytics, whale tracking, ETF flows, and AI-powered market signals on an interactive deck.gl 3D globe.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -26,7 +26,7 @@
 
 ## What is Solana Monitor?
 
-A free, open-source, real-time dashboard for monitoring the entire Solana ecosystem — from on-chain activity and DeFi protocols to whale movements and macro market signals. Everything updates live, rendered on an interactive 3D WebGL globe.
+A free, open-source dashboard for monitoring the Solana ecosystem in real time. Track on-chain activity, DeFi protocols, validator performance, whale movements, Solana ETF flows, and AI-generated insights — all rendered on an interactive WebGL globe.
 
 ---
 
@@ -34,36 +34,58 @@ A free, open-source, real-time dashboard for monitoring the entire Solana ecosys
 
 | # | Panel | Description |
 |---|-------|-------------|
-| 1 | **Live Charts** | Real-time SOL price charts with TradingView integration |
-| 2 | **Token Radar** | New token launches and trending tokens on Solana |
-| 3 | **𝕏 Insights** | Twitter/X social sentiment analysis for Solana topics |
-| 4 | **Network Status** | TPS, slot height, validator count, epoch progress |
-| 5 | **Whale Watch** | Large transaction tracking and whale wallet movements |
-| 6 | **Priority Fees** | Current Solana priority fee estimates and trends |
-| 7 | **DeFi Overview** | TVL, volume, top protocols across Solana DeFi |
-| 8 | **MEV & Jito** | MEV activity, Jito tips, and bundle analytics |
-| 9 | **Liquid Staking** | mSOL, jitoSOL, bSOL staking rates and TVL |
-| 10 | **Token Analyze** | Deep token analysis — holders, liquidity, risk score |
-| 11 | **AI Insights** | AI-generated market briefs and trend detection |
-| 12 | **Solana News** | Aggregated news from Solana ecosystem sources |
-| 13 | **Crypto Markets** | BTC, ETH, SOL and top crypto prices overview |
-| 14 | **Market Radar** | Macro signals — Fear & Greed, funding rates, dominance |
-| 15 | **Stablecoins** | USDC, USDT supply and flow tracking |
-| 16 | **Crypto ETF Tracker** | Bitcoin & Ethereum ETF inflow/outflow data |
-| 17 | **NFT Tracker** | Solana NFT collection floor prices and volume |
-| 18 | **Governance** | Solana governance proposals and voting activity |
-| 19 | **My Monitors** | Custom user-defined watchlists and alerts |
-| 20 | **Solana Globe** | Interactive 3D globe with real-time validator & node visualization |
+| 1 | **Solana Globe** | Interactive 3D globe — validators, stake heatmap, DePIN (Helium IoT/Mobile), data center clusters |
+| 2 | **Live Charts** | Real-time SOL price charts with TradingView integration |
+| 3 | **Token Analyze** | Deep token analysis — holders, liquidity, risk score, contract audit |
+| 4 | **Token Radar** | New token launches, trending tokens, and DexScreener data |
+| 5 | **DeFi Overview** | TVL, volume, and top 50 Solana protocols via DeFiLlama |
+| 6 | **Network Status** | TPS, slot height, validator count, epoch progress, stake distribution |
+| 7 | **Liquid Staking** | mSOL, jitoSOL, bSOL staking rates and TVL |
+| 8 | **MEV & Jito** | MEV activity, Jito tips, bundle analytics, and validator performance |
+| 9 | **AI Insights** | AI-generated market briefs and trend detection (Groq / OpenRouter) |
+| 10 | **Solana News** | Aggregated RSS feeds from Solana ecosystem sources |
+| 11 | **Solana ETF Tracker** | Real-time Solana ETF data — SOLZ, GSOL, VSOL, BSOL, FSOL, SOLT, SOLX (Yahoo Finance) |
+| 12 | **NFT Tracker** | Solana NFT collection floor prices and volume |
+| 13 | **Governance** | Solana governance proposals and voting activity |
+
+## Globe Layers
+
+| Layer | Source |
+|-------|--------|
+| Validators & Stake | Helius RPC + validators.app |
+| Stake Heatmap | On-chain vote accounts |
+| Data Center Clusters | IP geolocation of validator nodes |
+| DePIN Helium | 48K+ IoT & 28K+ Mobile hotspots |
+| Whale Flow Arcs | Helius transaction history |
 
 ---
 
 ## Tech Stack
 
-- **Frontend:** TypeScript, Vite 6, deck.gl 9, MapLibre GL
-- **3D Globe:** deck.gl WebGL rendering with 30+ data layers
-- **APIs:** 44 serverless functions (Vercel Edge)
-- **Data Sources:** Helius, Jupiter, Birdeye, DeFiLlama, LunarCrush, CoinGecko, and more
+- **Frontend:** TypeScript, Vite 6, vanilla DOM (no React)
+- **3D Globe:** deck.gl 9 + MapLibre GL with 10+ WebGL layers
+- **Backend:** 10 Vercel Edge Functions (serverless)
+- **AI:** Groq (primary) / OpenRouter (fallback) for market summaries
+- **Data Sources:** Helius, Yahoo Finance, DeFiLlama, CoinGecko, Validators.app, Helium, SocialData, DexScreener
+- **Caching:** Upstash Redis (cross-visitor deduplication)
 - **PWA:** Installable with offline support
+
+---
+
+## Serverless Functions
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/api/coingecko` | SOL price, market data |
+| `/api/defi-data` | DeFi protocols & TVL via DeFiLlama |
+| `/api/dexscreener-token` | Token pair data from DexScreener |
+| `/api/etf-flows` | Solana ETF real-time data (Yahoo Finance v8) |
+| `/api/helium-hotspots` | Helium IoT & Mobile hotspot locations |
+| `/api/rss-proxy` | RSS feed aggregation for Solana News |
+| `/api/solana-rpc-proxy` | Solana RPC proxy (vote accounts, epoch info) |
+| `/api/summarize` | AI summarization (Groq / OpenRouter) |
+| `/api/validators-app` | Validator stats from validators.app |
+| `/api/x-api` | X/Twitter search via SocialData |
 
 ---
 
@@ -78,8 +100,8 @@ cd solana-monitor
 npm install
 
 # Set up environment
-cp .env.example .env
-# Fill in your API keys
+cp .env.example .env.local
+# Fill in your API keys (all optional — dashboard works without them)
 
 # Run dev server
 npm run dev
@@ -91,15 +113,18 @@ Open `http://localhost:5173` in your browser.
 
 ## Environment Variables
 
-Copy `.env.example` and fill in the required API keys:
+Copy `.env.example` to `.env.local`. All keys are optional — the dashboard works without them, but the corresponding features will be disabled.
 
 | Variable | Service | Required |
 |----------|---------|----------|
-| `HELIUS_API_KEY` | Helius RPC & DAS | Yes |
-| `BIRDEYE_API_KEY` | Token data & prices | Yes |
-| `LUNARCRUSH_API_KEY` | Social metrics | Optional |
-| `BRIGHT_DATA_API_TOKEN` | X/Twitter search | Optional |
-| `COINGECKO_API_KEY` | Market data | Optional |
+| `VITE_HELIUS_RPC_URL` | Helius RPC (validators, whale tracking) | Recommended |
+| `GROQ_API_KEY` | AI Insights summarization | Optional |
+| `OPENROUTER_API_KEY` | AI fallback provider | Optional |
+| `UPSTASH_REDIS_REST_URL` | Cross-visitor cache | Optional |
+| `UPSTASH_REDIS_REST_TOKEN` | Cross-visitor cache | Optional |
+| `SOCIALDATA_API_KEY` | X/Twitter search | Optional |
+| `VITE_LUNARCRUSH_KEY` | Social pulse metrics | Optional |
+| `VITE_VALIDATORS_APP_TOKEN` | Validator stats | Optional |
 
 ---
 
