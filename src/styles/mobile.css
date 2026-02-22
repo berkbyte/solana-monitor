@@ -1186,12 +1186,6 @@ html, body {
     gap: 4px;
   }
   .etf-badge { font-size: 7px !important; }
-  .etf-aum { display: none; }  /* hide AUM on mobile to save space */
-
-  /* Wrap ETF in horizontal scroll container */
-  .panel-content:has(.etf-table) {
-    overflow-x: auto !important;
-  }
 
   /* ·· Stablecoin ·· */
   .stablecoin-grid {

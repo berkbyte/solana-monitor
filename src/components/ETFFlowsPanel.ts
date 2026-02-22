@@ -125,13 +125,6 @@ export class ETFFlowsPanel extends Panel {
       return;
     }
 
-    const s = d.summary;
-    const dirClass = flowCls(
-      s.netDirection.includes('INFLOW') ? 'inflow'
-        : s.netDirection.includes('OUTFLOW') ? 'outflow'
-        : 'neutral'
-    );
-
     // ── SOL price header ──
     const solPx = d.solPrice ? d.solPrice.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—';
     const solChg = d.solChange24h ?? 0;
@@ -143,23 +136,35 @@ export class ETFFlowsPanel extends Panel {
       ? '<span class="etf-source-badge etf-src-live">Yahoo Finance</span>'
       : '<span class="etf-source-badge etf-src-est">Unavailable</span>';
 
-    // ── Table rows ──
-    // Only show active ETFs in the table (skip unavailable)
+    // ── Only show active ETFs ──
     const activeEtfs = d.etfs.filter(etf => etf.status === 'active');
+
+    // ── Recalculate summary from displayed data to ensure consistency ──
+    const totalFlow = activeEtfs.reduce((s, e) => s + e.estFlow, 0);
+    const totalVolume = activeEtfs.reduce((s, e) => s + e.volume, 0);
+    const inflowCount = activeEtfs.filter(e => e.direction === 'inflow').length;
+    const outflowCount = activeEtfs.filter(e => e.direction === 'outflow').length;
+    const netDir = totalFlow > 1_000_000 ? 'NET INFLOW'
+      : totalFlow < -1_000_000 ? 'NET OUTFLOW'
+      : 'NEUTRAL';
+    const dirClass = flowCls(
+      netDir.includes('INFLOW') ? 'inflow'
+        : netDir.includes('OUTFLOW') ? 'outflow'
+        : 'neutral'
+    );
+
+    // ── Table rows (compact: Ticker+Badge, Price, Flow, Vol, Chg%) ──
     const rows = activeEtfs.map(etf => {
       const flowSign = etf.direction === 'inflow' ? '+' : etf.direction === 'outflow' ? '−' : '';
-      const aumStr = etf.aum ? fmtUsd(etf.aum) : '—';
-      const volRatioStr = etf.volumeRatio > 0 ? `${etf.volumeRatio.toFixed(1)}×` : '—';
-      const statusDot = '<span class="etf-status-dot etf-dot-active" title="Live data"></span>';
-      const nameStr = etf.name ? `<span class="etf-name">${escapeHtml(etf.name)}</span>` : '';
+      const badge = typeBadge(etf.type);
+      const pxStr = `$${etf.price.toFixed(2)}`;
 
       return `
       <tr class="etf-row">
-        <td class="etf-ticker">${statusDot}${escapeHtml(etf.ticker)} ${typeBadge(etf.type)}${nameStr}</td>
-        <td class="etf-issuer">${escapeHtml(etf.issuer)}</td>
-        <td class="etf-aum">${aumStr}</td>
+        <td class="etf-ticker">${escapeHtml(etf.ticker)}${badge}</td>
+        <td class="etf-price">${pxStr}</td>
         <td class="etf-flow ${flowCls(etf.direction)}">${flowSign}${fmtUsd(etf.estFlow)}</td>
-        <td class="etf-volume">${fmtVol(etf.volume)}<span class="etf-vol-ratio">${volRatioStr}</span></td>
+        <td class="etf-volume">${fmtVol(etf.volume)}</td>
         <td class="etf-change ${changeCls(etf.priceChange)}">${etf.priceChange > 0 ? '+' : ''}${etf.priceChange.toFixed(2)}%</td>
       </tr>`;
     }).join('');
@@ -172,37 +177,34 @@ export class ETFFlowsPanel extends Panel {
         </div>
         <div class="etf-summary ${dirClass}">
           <div class="etf-summary-item">
-            <span class="etf-summary-label">24h Net Flow</span>
-            <span class="etf-summary-value ${dirClass}">${escapeHtml(s.netDirection)}</span>
+            <span class="etf-summary-label">Net Flow</span>
+            <span class="etf-summary-value ${dirClass}">${escapeHtml(netDir)}</span>
           </div>
           <div class="etf-summary-item">
             <span class="etf-summary-label">Est. Flow</span>
-            <span class="etf-summary-value ${s.totalEstFlow >= 0 ? 'flow-inflow' : 'flow-outflow'}">${fmtUsd(s.totalEstFlow)}</span>
+            <span class="etf-summary-value ${totalFlow >= 0 ? 'flow-inflow' : 'flow-outflow'}">${fmtUsd(totalFlow)}</span>
           </div>
           <div class="etf-summary-item">
-            <span class="etf-summary-label">Total Volume</span>
-            <span class="etf-summary-value">${fmtVol(s.totalVolume)}</span>
+            <span class="etf-summary-label">Volume</span>
+            <span class="etf-summary-value">${fmtVol(totalVolume)}</span>
           </div>
           <div class="etf-summary-item">
             <span class="etf-summary-label">Products</span>
-            <span class="etf-summary-value">${s.inflowCount}<span class="flow-inflow">↑</span> ${s.outflowCount}<span class="flow-outflow">↓</span></span>
+            <span class="etf-summary-value">${inflowCount}<span class="flow-inflow">↑</span> ${outflowCount}<span class="flow-outflow">↓</span></span>
           </div>
         </div>
-        <div class="etf-table-wrap">
-          <table class="etf-table">
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Issuer</th>
-                <th>AUM</th>
-                <th>Est. Flow</th>
-                <th>Volume</th>
-                <th>Chg%</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
+        <table class="etf-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Price</th>
+              <th>Est. Flow</th>
+              <th>Vol</th>
+              <th>Chg%</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
       </div>
     `;
 

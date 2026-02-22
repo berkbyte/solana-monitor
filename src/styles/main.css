@@ -12031,38 +12031,47 @@ body.has-critical-banner .panels-grid {
 .etf-summary-value.flow-outflow { color: var(--semantic-critical); }
 
 /* ── Table ── */
-.etf-table-wrap { overflow-x: auto; }
 .etf-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  table-layout: fixed;
 }
 .etf-table th {
   text-align: left;
   font-size: 10px;
   color: var(--text-muted);
-  padding: 4px 6px;
+  padding: 4px 4px;
   border-bottom: 1px solid var(--overlay-medium);
   font-weight: 500;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
 }
+/* Column widths: Ticker  Price  Est.Flow  Vol  Chg% */
+.etf-table th:nth-child(1),
+.etf-table td:nth-child(1) { width: 28%; }
+.etf-table th:nth-child(2),
+.etf-table td:nth-child(2) { width: 17%; text-align: right; }
+.etf-table th:nth-child(3),
+.etf-table td:nth-child(3) { width: 22%; text-align: right; }
+.etf-table th:nth-child(4),
+.etf-table td:nth-child(4) { width: 18%; text-align: right; }
+.etf-table th:nth-child(5),
+.etf-table td:nth-child(5) { width: 15%; text-align: right; }
 .etf-table td {
-  padding: 5px 6px;
+  padding: 5px 4px;
   border-bottom: 1px solid var(--overlay-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .etf-ticker { font-weight: 600; color: var(--accent); white-space: nowrap; }
-.etf-issuer { color: var(--text-muted); font-size: 11px; }
-.etf-aum    { color: var(--text-muted); font-size: 11px; }
+.etf-price  { color: var(--text-muted); font-size: 11px; }
 .etf-flow.flow-inflow { color: var(--semantic-normal); }
 .etf-flow.flow-outflow { color: var(--semantic-critical); }
 .etf-flow.flow-neutral { color: var(--text-muted); }
 .etf-volume { color: var(--accent); white-space: nowrap; }
-.etf-vol-ratio {
-  display: inline-block;
-  font-size: 9px;
-  color: var(--text-muted);
-  margin-left: 3px;
-}
 .etf-change { font-weight: 500; }
 
 /* ── Type badges (Trust / Spot / Futures) ── */
@@ -12082,18 +12091,6 @@ body.has-critical-banner .panels-grid {
 .etf-badge-staking { background: rgba(255, 152, 0, 0.15); color: #ffb74d; }
 .etf-badge-leveraged { background: rgba(244, 67, 54, 0.15); color: #ef9a9a; }
 .etf-badge-futures { background: rgba(33, 150, 243, 0.15); color: #64b5f6; }
-
-.etf-name {
-  display: block;
-  font-size: 0.7rem;
-  color: var(--text-tertiary, #8892b0);
-  font-weight: 400;
-  margin-top: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 180px;
-}
 
 /* ── Status dots (live vs estimated) ── */
 .etf-status-dot {
