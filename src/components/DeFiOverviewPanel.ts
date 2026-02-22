@@ -18,8 +18,7 @@ interface LiquidStakingEntry {
   symbol: string;
   tvl: number;
   apy: number;
-  price: number;
-  peg: number; // deviation from 1:1
+  stakeShare: number; // % of total staked
 }
 
 interface DeFiData {
@@ -125,8 +124,6 @@ export class DeFiOverviewPanel extends Panel {
     return `
       <div class="defi-lst-list">
         ${this.data.liquidStaking.map(lst => {
-          const pegDeviation = Math.abs(lst.peg);
-          const pegClass = pegDeviation < 0.005 ? 'peg-safe' : pegDeviation < 0.02 ? 'peg-warn' : 'peg-danger';
           return `
             <div class="defi-lst-row">
               <div class="defi-lst-info">
@@ -140,13 +137,11 @@ export class DeFiOverviewPanel extends Panel {
                 </div>
                 <div class="defi-lst-metric">
                   <span class="metric-label">APY</span>
-                  <span class="metric-value apy">${lst.apy.toFixed(2)}%</span>
+                  <span class="metric-value apy">${lst.apy > 0 ? lst.apy.toFixed(2) + '%' : '\u2014'}</span>
                 </div>
                 <div class="defi-lst-metric">
-                  <span class="metric-label">Peg</span>
-                  <span class="metric-value ${pegClass}">
-                    ${lst.peg >= 0 ? '+' : ''}${(lst.peg * 100).toFixed(2)}%
-                  </span>
+                  <span class="metric-label">Share</span>
+                  <span class="metric-value">${lst.stakeShare.toFixed(1)}%</span>
                 </div>
               </div>
             </div>

@@ -444,9 +444,10 @@ export interface LiquidStakingToken {
   tvlSol: number;
   tvlUsd: number;
   apy: number;
-  pegDeviation: number;
-  validators: number;
+  priceSol: number;
   marketShare: number;
+  fdv: number;
+  change24h: number;
 }
 
 export interface PumpFunToken {

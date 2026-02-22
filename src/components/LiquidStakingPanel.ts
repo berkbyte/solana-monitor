@@ -9,15 +9,8 @@ interface LSTProvider {
   tvlSol: number;
   tvlUsd: number;
   apy: number;
-  apyComponents: {
-    staking: number;
-    mev: number;
-    emissions: number;
-  };
-  priceSol: number;
-  pegDeviation: number; // percentage from 1:1
-  validators: number;
-  marketShare: number; // percentage of total Solana staked
+  priceSol: number;     // exchange rate: 1 LST = X SOL (value-accruing, naturally > 1)
+  marketShare: number;
   fdv: number;
   change24h: number;
 }
@@ -78,7 +71,6 @@ export class LiquidStakingPanel extends Panel {
 
         <div class="lst-providers">
           ${d.providers.map(p => {
-            const pegClass = Math.abs(p.pegDeviation) < 0.5 ? 'peg-safe' : Math.abs(p.pegDeviation) < 2 ? 'peg-warn' : 'peg-danger';
             return `
               <div class="lst-provider-card">
                 <div class="lst-provider-header">
@@ -91,31 +83,27 @@ export class LiquidStakingPanel extends Panel {
                 <div class="lst-provider-metrics">
                   <div class="lst-metric-row">
                     <span class="lst-metric-label">TVL</span>
-                    <span class="lst-metric-value">${this.formatSol(p.tvlSol)} SOL</span>
+                    <span class="lst-metric-value">${this.formatSol(p.tvlSol)} SOL <span class="lst-sub">(${this.formatUsd(p.tvlUsd)})</span></span>
                   </div>
                   <div class="lst-metric-row">
                     <span class="lst-metric-label">APY</span>
-                    <span class="lst-metric-value apy">${p.apy.toFixed(2)}%</span>
-                    <span class="lst-apy-breakdown">
-                      (stake ${p.apyComponents.staking.toFixed(1)}% + mev ${p.apyComponents.mev.toFixed(1)}% + emit ${p.apyComponents.emissions.toFixed(1)}%)
-                    </span>
+                    <span class="lst-metric-value apy">${p.apy > 0 ? p.apy.toFixed(2) + '%' : '—'}</span>
                   </div>
                   <div class="lst-metric-row">
-                    <span class="lst-metric-label">Peg</span>
-                    <span class="lst-metric-value ${pegClass}">
-                      ${p.pegDeviation >= 0 ? '+' : ''}${p.pegDeviation.toFixed(3)}%
-                    </span>
+                    <span class="lst-metric-label">Rate</span>
+                    <span class="lst-metric-value">1 ${escapeHtml(p.symbol)} = ${p.priceSol.toFixed(4)} SOL</span>
                   </div>
+                  ${p.fdv > 0 ? `
                   <div class="lst-metric-row">
-                    <span class="lst-metric-label">Market Share</span>
+                    <span class="lst-metric-label">FDV</span>
+                    <span class="lst-metric-value">${this.formatUsd(p.fdv)}</span>
+                  </div>` : ''}
+                  <div class="lst-metric-row">
+                    <span class="lst-metric-label">Share</span>
                     <div class="lst-share-bar">
                       <div class="lst-share-fill" style="width: ${Math.min(p.marketShare, 100)}%"></div>
                     </div>
                     <span class="lst-metric-value">${p.marketShare.toFixed(1)}%</span>
-                  </div>
-                  <div class="lst-metric-row">
-                    <span class="lst-metric-label">Validators</span>
-                    <span class="lst-metric-value">${p.validators.toLocaleString()}</span>
                   </div>
                 </div>
               </div>

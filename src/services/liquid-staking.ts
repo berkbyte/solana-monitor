@@ -8,10 +8,7 @@ export interface LSTProvider {
   tvlSol: number;
   tvlUsd: number;
   apy: number;
-  apyComponents: { staking: number; mev: number; emissions: number };
-  priceSol: number;
-  pegDeviation: number;
-  validators: number;
+  priceSol: number;     // exchange rate: 1 LST = X SOL (value-accruing, naturally > 1)
   marketShare: number;
   fdv: number;
   change24h: number;
@@ -30,11 +27,11 @@ const DEFILLAMA_YIELDS = 'https://yields.llama.fi/pools';
 
 // Known Solana LST tokens with CoinGecko IDs for market data
 const LST_CONFIG = [
-  { name: 'Marinade', symbol: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', llamaPool: 'marinade', validators: 450, coingeckoId: 'msol' },
-  { name: 'Jito', symbol: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', llamaPool: 'jito', validators: 200, coingeckoId: 'jito-staked-sol' },
-  { name: 'BlazeStake', symbol: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', llamaPool: 'blazestake', validators: 400, coingeckoId: 'blazestake-staked-sol' },
-  { name: 'Sanctum Infinity', symbol: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', llamaPool: 'sanctum', validators: 100, coingeckoId: 'sanctum-infinity' },
-  { name: 'Jupiter SOL', symbol: 'jupSOL', mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', llamaPool: 'jupiter', validators: 50, coingeckoId: 'jupiter-staked-sol' },
+  { name: 'Marinade', symbol: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', llamaPool: 'marinade', coingeckoId: 'msol' },
+  { name: 'Jito', symbol: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', llamaPool: 'jito', coingeckoId: 'jito-staked-sol' },
+  { name: 'BlazeStake', symbol: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', llamaPool: 'blazestake', coingeckoId: 'blazestake-staked-sol' },
+  { name: 'Sanctum Infinity', symbol: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', llamaPool: 'sanctum', coingeckoId: 'sanctum-infinity' },
+  { name: 'Jupiter SOL', symbol: 'jupSOL', mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', llamaPool: 'jupiter', coingeckoId: 'jupiter-staked-sol' },
 ];
 
 let cachedSummary: LSTSummary | null = null;
@@ -162,10 +159,11 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
     'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v': 0,
   };
 
-  // Fetch real total staked SOL from RPC (no hardcoded fallback)
+  // Fetch real total staked SOL from RPC — prefer Helius, fallback to public
   let totalSolStaked = 0;
+  const rpcUrl = import.meta.env.VITE_HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com';
   try {
-    const stakeRes = await fetch('https://api.mainnet-beta.solana.com', {
+    const stakeRes = await fetch(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getVoteAccounts' }),
@@ -205,14 +203,7 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
     const tvlSol = solPrice > 0 ? tvlUsd / solPrice : 0;
     const apy = apyMap.get(cfg.mint) || defaultApys[cfg.mint] || 0; // 0 = unavailable, not a fake value
     const priceSol = priceMap.get(cfg.mint) || 1.0;
-    const pegDeviation = (priceSol - 1.0) * 100;
-    const marketShare = (tvlSol / totalSolStaked) * 100;
-
-    // APY breakdown — use total APY as staking component
-    // We don't have granular MEV/emissions data, so report total as base staking
-    const stakingBase = apy;
-    const mevComponent = 0;
-    const emissions = 0;
+    const marketShare = totalSolStaked > 0 ? (tvlSol / totalSolStaked) * 100 : 0;
 
     return {
       name: cfg.name,
@@ -221,17 +212,10 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
       tvlSol,
       tvlUsd,
       apy,
-      apyComponents: {
-        staking: stakingBase,
-        mev: mevComponent,
-        emissions: Math.max(0, emissions),
-      },
-      priceSol,
-      pegDeviation,
-      validators: cfg.validators,
+      priceSol,   // exchange rate: 1 LST = X SOL
       marketShare,
-      fdv: cgData.get(cfg.coingeckoId)?.fdv || 0, // real FDV from CoinGecko, 0 if unavailable
-      change24h: cgData.get(cfg.coingeckoId)?.change24h || 0, // real 24h change from CoinGecko
+      fdv: cgData.get(cfg.coingeckoId)?.fdv || 0,
+      change24h: cgData.get(cfg.coingeckoId)?.change24h || 0,
     };
   });
 

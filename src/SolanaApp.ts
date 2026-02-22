@@ -411,8 +411,7 @@ export class App {
             symbol: ls.token,
             tvl: ls.tvl,
             apy: ls.apy || 0,
-            price: 1.0,
-            peg: 0,
+            stakeShare: ls.stakeShare || 0,
           })) || [],
         });
       }
