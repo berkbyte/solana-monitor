@@ -9,11 +9,14 @@ import type { ClusteredEvent } from '@/types';
 
 export class InsightsPanel extends Panel {
   private isHidden = false;
-  private lastBriefUpdate = 0;
   private cachedBrief: string | null = null;
   private lastMissedStories: AnalyzedHeadline[] = [];
-  private static readonly BRIEF_COOLDOWN_MS = 120000; // 2 min cooldown (API has limits)
   private static readonly BRIEF_CACHE_KEY = 'summary:world-brief';
+
+  // State for on-demand summarization
+  private currentClusters: ClusteredEvent[] = [];
+  private currentSentiments: Array<{ label: string; score: number }> | null = null;
+  private isSummarizing = false;
 
   constructor() {
     super({
@@ -41,7 +44,6 @@ export class InsightsPanel extends Panel {
     const entry = await getPersistentCache<{ summary: string }>(InsightsPanel.BRIEF_CACHE_KEY);
     if (!entry?.data?.summary) return false;
     this.cachedBrief = entry.data.summary;
-    this.lastBriefUpdate = entry.updatedAt;
     return true;
   }
   // High-priority crypto/market-moving keywords (huge boost)
@@ -219,7 +221,7 @@ export class InsightsPanel extends Panel {
       return;
     }
 
-    const totalSteps = 4;
+    const totalSteps = 3;
 
     try {
       // Step 1: Filter and rank stories by composite importance score
@@ -254,38 +256,19 @@ export class InsightsPanel extends Panel {
         sentiments = await mlWorker.classifySentiment(titles).catch(() => null);
       }
 
-      // Step 3: Generate World Brief (with cooldown)
-      const loadedFromPersistentCache = await this.loadBriefFromCache();
-      let worldBrief = this.cachedBrief;
-      const now = Date.now();
+      // Step 3: Load cached brief if available (no auto-generation)
+      await this.loadBriefFromCache();
+      const worldBrief = this.cachedBrief;
 
-      let usedCachedBrief = loadedFromPersistentCache;
-      if (!worldBrief || now - this.lastBriefUpdate > InsightsPanel.BRIEF_COOLDOWN_MS) {
-        this.setProgress(3, totalSteps, 'Generating world brief...');
-
-        const result = await generateSummary(titles, (_step, _total, msg) => {
-          // Show sub-progress for summarization
-          this.setProgress(3, totalSteps, `Generating brief: ${msg}`);
-        }, '');
-
-        if (result) {
-          worldBrief = result.summary;
-          this.cachedBrief = worldBrief;
-          this.lastBriefUpdate = now;
-          usedCachedBrief = false;
-          void setPersistentCache(InsightsPanel.BRIEF_CACHE_KEY, { summary: worldBrief });
-          console.log(`[InsightsPanel] Brief generated${result.cached ? ' (cached)' : ''}`);
-        }
-      } else {
-        usedCachedBrief = true;
-        this.setProgress(3, totalSteps, 'Using cached brief...');
-      }
-
-      this.setDataBadge(worldBrief ? (usedCachedBrief ? 'cached' : 'live') : 'unavailable');
+      this.setDataBadge(worldBrief ? 'cached' : 'unavailable');
 
       // Step 4: Wait for parallel analysis to complete
-      this.setProgress(4, totalSteps, 'Multi-perspective analysis...');
+      this.setProgress(3, totalSteps, 'Multi-perspective analysis...');
       await parallelPromise;
+
+      // Store state for on-demand summarization
+      this.currentClusters = importantClusters;
+      this.currentSentiments = sentiments;
 
       this.renderInsights(importantClusters, sentiments, worldBrief);
     } catch (error) {
@@ -299,7 +282,7 @@ export class InsightsPanel extends Panel {
     sentiments: Array<{ label: string; score: number }> | null,
     worldBrief: string | null
   ): void {
-    const briefHtml = worldBrief ? this.renderWorldBrief(worldBrief) : '';
+    const briefHtml = worldBrief ? this.renderWorldBrief(worldBrief) : this.renderSummarizeButton();
     const sentimentOverview = this.renderSentimentOverview(sentiments);
     const breakingHtml = this.renderBreakingStories(clusters, sentiments);
     const statsHtml = this.renderStats(clusters);
@@ -316,7 +299,10 @@ export class InsightsPanel extends Panel {
       ${missedHtml}
     `);
 
-
+    // Bind summarize button if brief not yet generated
+    if (!worldBrief) {
+      this.bindSummarizeButton();
+    }
   }
 
   private renderWorldBrief(brief: string): string {
@@ -326,6 +312,63 @@ export class InsightsPanel extends Panel {
         <div class="insights-brief-text">${escapeHtml(brief)}</div>
       </div>
     `;
+  }
+
+  private renderSummarizeButton(): string {
+    return `
+      <div class="insights-brief">
+        <button class="insights-summarize-btn" id="insights-summarize-btn">
+          📊 Summarize
+        </button>
+      </div>
+    `;
+  }
+
+  private bindSummarizeButton(): void {
+    const btn = this.content?.querySelector('#insights-summarize-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.addEventListener('click', () => void this.onSummarizeClick());
+  }
+
+  private async onSummarizeClick(): Promise<void> {
+    if (this.isSummarizing) return;
+    this.isSummarizing = true;
+
+    const btn = this.content?.querySelector('#insights-summarize-btn') as HTMLButtonElement | null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Generating...';
+    }
+
+    try {
+      const titles = this.currentClusters.map(c => c.primaryTitle);
+      if (titles.length === 0) return;
+
+      const result = await generateSummary(titles, (_step, _total, msg) => {
+        if (btn) btn.textContent = `⏳ ${msg}`;
+      }, '');
+
+      if (result) {
+        this.cachedBrief = result.summary;
+        void setPersistentCache(InsightsPanel.BRIEF_CACHE_KEY, { summary: result.summary });
+        this.setDataBadge(result.cached ? 'cached' : 'live');
+        console.log(`[InsightsPanel] Brief generated${result.cached ? ' (cached)' : ''}`);
+
+        // Re-render with the brief
+        this.renderInsights(this.currentClusters, this.currentSentiments, result.summary);
+      } else {
+        if (btn) btn.textContent = '❌ Failed — tap to retry';
+        if (btn) btn.disabled = false;
+      }
+    } catch (err) {
+      console.error('[InsightsPanel] Summarize error:', err);
+      if (btn) {
+        btn.textContent = '❌ Failed — tap to retry';
+        btn.disabled = false;
+      }
+    } finally {
+      this.isSummarizing = false;
+    }
   }
 
   private renderBreakingStories(
