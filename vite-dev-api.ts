@@ -428,6 +428,54 @@ async function handleHeliumHotspots(_req: any, res: any) {
   return json(res, result);
 }
 
+// ───────────────────────── NFT Stats Proxy (Magic Eden) ─────────────────────────
+const ME_API = 'https://api-mainnet.magiceden.dev/v2';
+const NFT_SLUGS = [
+  'mad_lads', 'tensorians', 'claynosaurz', 'famous_fox_federation',
+  'okay_bears', 'degods', 'solana_monkey_business', 'froganas',
+  'transdimensional_fox_federation', 'aurory',
+];
+let nftStatsCache: { data: any; ts: number } | null = null;
+const NFT_STATS_CACHE_TTL = 300_000; // 5 min
+
+async function handleNftStats(_req: any, res: any) {
+  if (nftStatsCache && Date.now() - nftStatsCache.ts < NFT_STATS_CACHE_TTL) {
+    console.log(`[nft-stats] Cache hit (${nftStatsCache.data.collections.length} collections)`);
+    return json(res, nftStatsCache.data);
+  }
+
+  try {
+    console.log('[nft-stats] Fetching from Magic Eden v2...');
+    const results = await Promise.allSettled(
+      NFT_SLUGS.map(async (slug) => {
+        const r = await fetchWithTimeout(`${ME_API}/collections/${slug}/stats`, {}, 10000);
+        if (!r.ok) return null;
+        const d: any = await r.json();
+        return {
+          slug: d.symbol || slug,
+          floorPrice: d.floorPrice || 0,
+          listedCount: d.listedCount || 0,
+          avgPrice24hr: d.avgPrice24hr || 0,
+          volumeAll: d.volumeAll || 0,
+        };
+      })
+    );
+
+    const collections = results
+      .map(r => r.status === 'fulfilled' ? r.value : null)
+      .filter(Boolean);
+
+    const data = { collections, timestamp: Date.now() };
+    console.log(`[nft-stats] ✅ ${collections.length} collections fetched`);
+    nftStatsCache = { data, ts: Date.now() };
+    return json(res, data);
+  } catch (e: any) {
+    console.error(`[nft-stats] Failed: ${e.message}`);
+    if (nftStatsCache) return json(res, nftStatsCache.data);
+    return json(res, { collections: [], timestamp: Date.now() }, 502);
+  }
+}
+
 // ───────────────────────── DeFi Llama Proxy ─────────────────────────
 // Proxies DeFi Llama /protocols endpoint to avoid CORS issues.
 // Returns top 50 Solana protocols with TVL, category, 24h/7d change.
@@ -821,6 +869,9 @@ export function devApiPlugin(): Plugin {
           }
           if (url.startsWith('/api/helium-hotspots')) {
             return await handleHeliumHotspots(req, res);
+          }
+          if (url.startsWith('/api/nft-stats')) {
+            return await handleNftStats(req, res);
           }
           if (url.startsWith('/api/defi-data')) {
             return await handleDefiData(req, res);

@@ -1144,6 +1144,26 @@
   text-align: right;
 }
 
+.nft-metric-label {
+  display: block;
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.nft-metric-value {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.nft-no-data {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
 /* ============================================================
    GOVERNANCE PANEL
    ============================================================ */
