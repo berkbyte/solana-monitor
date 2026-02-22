@@ -25,13 +25,13 @@ export interface LSTSummary {
 const JUPITER_PRICE_API = 'https://api.jup.ag/price/v2';
 const DEFILLAMA_YIELDS = 'https://yields.llama.fi/pools';
 
-// Known Solana LST tokens with CoinGecko IDs for market data
+// Known Solana LST tokens — exact DeFi Llama identifiers for reliable matching
 const LST_CONFIG = [
-  { name: 'Marinade', symbol: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', llamaPool: 'marinade', coingeckoId: 'msol' },
-  { name: 'Jito', symbol: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', llamaPool: 'jito', coingeckoId: 'jito-staked-sol' },
-  { name: 'BlazeStake', symbol: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', llamaPool: 'blazestake', coingeckoId: 'blazestake-staked-sol' },
-  { name: 'Sanctum Infinity', symbol: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', llamaPool: 'sanctum', coingeckoId: 'sanctum-infinity' },
-  { name: 'Jupiter SOL', symbol: 'jupSOL', mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', llamaPool: 'jupiter', coingeckoId: 'jupiter-staked-sol' },
+  { name: 'Marinade', symbol: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', llamaProject: 'marinade-liquid-staking', llamaSlug: 'marinade-liquid-staking', coingeckoId: 'msol' },
+  { name: 'Jito', symbol: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', llamaProject: 'jito-liquid-staking', llamaSlug: 'jito-liquid-staking', coingeckoId: 'jito-staked-sol' },
+  { name: 'BlazeStake', symbol: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', llamaProject: 'blazestake', llamaSlug: 'blazestake', coingeckoId: 'blazestake-staked-sol' },
+  { name: 'Sanctum Infinity', symbol: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', llamaProject: 'sanctum-infinity', llamaSlug: 'sanctum-infinity', coingeckoId: 'sanctum-infinity' },
+  { name: 'Jupiter SOL', symbol: 'jupSOL', mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', llamaProject: 'jupiter-staked-sol', llamaSlug: 'jupiter-staked-sol', coingeckoId: 'jupiter-staked-sol' },
 ];
 
 let cachedSummary: LSTSummary | null = null;
@@ -47,12 +47,9 @@ async function fetchLSTApys(): Promise<Map<string, number>> {
     const pools = data.data || data;
 
     for (const cfg of LST_CONFIG) {
-      // Find matching pool on Solana chain for this LST
+      // Find matching pool using exact DeFi Llama project slug
       const pool = pools.find((p: Record<string, unknown>) =>
-        p.chain === 'Solana' && (
-          (p.symbol as string)?.toLowerCase().includes(cfg.symbol.toLowerCase()) ||
-          (p.project as string)?.toLowerCase().includes(cfg.llamaPool)
-        )
+        p.chain === 'Solana' && (p.project as string) === cfg.llamaProject
       );
       if (pool && typeof pool.apy === 'number') {
         apyMap.set(cfg.mint, pool.apy);
@@ -121,10 +118,9 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
     if (res.ok) {
       const protocols = await res.json();
       for (const cfg of LST_CONFIG) {
+        // Match by exact DeFi Llama protocol slug — no fuzzy name matching
         const protocol = protocols.find((p: Record<string, unknown>) =>
-          (p.name as string)?.toLowerCase().includes(cfg.name.toLowerCase()) &&
-          (p.chains as string[])?.includes('Solana') &&
-          ((p.category as string) === 'Liquid Staking' || cfg.name === 'Sanctum Infinity')
+          (p.slug as string) === cfg.llamaSlug
         );
         if (protocol) {
           // Use Solana-specific TVL if available
@@ -134,10 +130,7 @@ export async function fetchLiquidStaking(): Promise<LSTSummary> {
             protocolTvls.set(cfg.mint, solanaTvl);
           } else if (typeof protocol.tvl === 'number') {
             // Single-chain LST protocols — total TVL is Solana TVL
-            const chains = protocol.chains as string[];
-            if (chains?.length === 1) {
-              protocolTvls.set(cfg.mint, protocol.tvl);
-            }
+            protocolTvls.set(cfg.mint, protocol.tvl as number);
           }
         }
       }

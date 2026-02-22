@@ -100,10 +100,11 @@ export async function fetchDeFiOverview(): Promise<DeFiSummary> {
 
     // Liquid staking data — TVL from DeFi Llama, APY from DeFi Llama yields
     const lstConfigs = [
-      { protocol: 'Marinade', token: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', llamaPool: 'marinade', validatorCount: 0 },
-      { protocol: 'Jito', token: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', llamaPool: 'jito', validatorCount: 0 },
-      { protocol: 'BlazeStake', token: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', llamaPool: 'blazestake', validatorCount: 0 },
-      { protocol: 'Sanctum', token: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', llamaPool: 'sanctum', validatorCount: 0 },
+      { protocol: 'Marinade', token: 'mSOL', mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', llamaProject: 'marinade-liquid-staking', llamaSlug: 'marinade-liquid-staking', validatorCount: 0 },
+      { protocol: 'Jito', token: 'jitoSOL', mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', llamaProject: 'jito-liquid-staking', llamaSlug: 'jito-liquid-staking', validatorCount: 0 },
+      { protocol: 'BlazeStake', token: 'bSOL', mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', llamaProject: 'blazestake', llamaSlug: 'blazestake', validatorCount: 0 },
+      { protocol: 'Sanctum', token: 'INF', mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', llamaProject: 'sanctum-infinity', llamaSlug: 'sanctum-infinity', validatorCount: 0 },
+      { protocol: 'Jupiter SOL', token: 'jupSOL', mint: 'jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v', llamaProject: 'jupiter-staked-sol', llamaSlug: 'jupiter-staked-sol', validatorCount: 0 },
     ];
 
     // Fetch real APYs from DeFi Llama yields
@@ -114,11 +115,9 @@ export async function fetchDeFiOverview(): Promise<DeFiSummary> {
         const yieldsData = await yieldsRes.json();
         const pools = yieldsData.data || yieldsData;
         for (const cfg of lstConfigs) {
+          // Exact project slug match — no fuzzy symbol/project matching
           const pool = pools.find((p: Record<string, unknown>) =>
-            p.chain === 'Solana' && (
-              (p.symbol as string)?.toLowerCase().includes(cfg.token.toLowerCase()) ||
-              (p.project as string)?.toLowerCase().includes(cfg.llamaPool)
-            )
+            p.chain === 'Solana' && (p.project as string) === cfg.llamaProject
           );
           if (pool && typeof pool.apy === 'number') {
             apyMap.set(cfg.mint, pool.apy);
@@ -135,7 +134,7 @@ export async function fetchDeFiOverview(): Promise<DeFiSummary> {
     // Build liquid staking entries
     const liquidStaking: LiquidStakingData[] = lstConfigs.map(cfg => {
       const protocol = solanaProtocols.find((p: ProtocolData) =>
-        p.name.toLowerCase().includes(cfg.protocol.toLowerCase())
+        p.slug === cfg.llamaSlug
       );
       const tvl = protocol?.tvl || 0;
       const apy = apyMap.get(cfg.mint) || 0;
