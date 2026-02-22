@@ -451,12 +451,13 @@ async function handleNftStats(_req: any, res: any) {
         const r = await fetchWithTimeout(`${ME_API}/collections/${slug}/stats`, {}, 10000);
         if (!r.ok) return null;
         const d: any = await r.json();
+        // Always use input slug — keeps client NAMES mapping stable
         return {
-          slug: d.symbol || slug,
-          floorPrice: d.floorPrice || 0,
-          listedCount: d.listedCount || 0,
-          avgPrice24hr: d.avgPrice24hr || 0,
-          volumeAll: d.volumeAll || 0,
+          slug,
+          floorPrice:   Number(d.floorPrice)   || 0,
+          listedCount:  Number(d.listedCount)   || 0,
+          avgPrice24hr: Number(d.avgPrice24hr)  || 0,
+          volumeAll:    Number(d.volumeAll)     || 0,
         };
       })
     );

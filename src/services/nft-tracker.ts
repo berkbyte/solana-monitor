@@ -1,38 +1,50 @@
-// NFT Tracker service — Solana NFT ecosystem data
-// Uses Magic Eden v2 API (via serverless proxy) for real collection stats
+// NFT Tracker service — fetches Solana NFT collection stats from /api/nft-stats
+// All data sourced from Magic Eden v2 API (proxied to avoid CORS)
+// Prices arrive in lamports from the proxy; we convert to SOL (÷ 1e9) here.
 
 export interface NFTCollection {
   name: string;
-  slug: string;
-  floorPrice: number;   // SOL
-  avgPrice24h: number;  // SOL (avg sale price last 24h)
-  volumeAll: number;    // SOL (all-time volume)
-  listed: number;
-  marketplace: 'tensor' | 'magiceden' | 'both';
+  slug: string;          // Magic Eden slug, used for marketplace URL
+  floorPrice: number;    // SOL
+  avgPrice24h: number;   // SOL — average sale price last 24 h
+  volumeAll: number;     // SOL — all-time trading volume
+  listed: number;        // items currently listed
 }
 
 export interface NFTSummary {
   topCollections: NFTCollection[];
-  totalFloorValue: number; // sum of (floorPrice * listed) across collections
+  totalFloorValue: number; // Σ (floorPrice × listed)
 }
 
+// ── client-side cache ────────────────────────────────────────
 let cachedSummary: NFTSummary | null = null;
 let lastFetch = 0;
 const CACHE_TTL = 300_000; // 5 min
 
-// Collection metadata — slug must match Magic Eden /v2/collections/{slug}/stats
-const COLLECTION_META: Record<string, { name: string; marketplace: NFTCollection['marketplace'] }> = {
-  mad_lads:                         { name: 'Mad Lads',                         marketplace: 'tensor'    },
-  tensorians:                       { name: 'Tensorians',                       marketplace: 'tensor'    },
-  claynosaurz:                      { name: 'Claynosaurz',                      marketplace: 'both'      },
-  famous_fox_federation:            { name: 'Famous Fox Federation',            marketplace: 'both'      },
-  okay_bears:                       { name: 'Okay Bears',                       marketplace: 'magiceden' },
-  degods:                           { name: 'DeGods',                           marketplace: 'both'      },
-  solana_monkey_business:           { name: 'Solana Monkey Business',           marketplace: 'both'      },
-  froganas:                         { name: 'Frogana',                          marketplace: 'both'      },
-  transdimensional_fox_federation:  { name: 'Transdimensional Fox Federation',  marketplace: 'both'      },
-  aurory:                           { name: 'Aurory',                           marketplace: 'magiceden' },
+// Pretty names for each slug
+const NAMES: Record<string, string> = {
+  mad_lads:                        'Mad Lads',
+  tensorians:                      'Tensorians',
+  claynosaurz:                     'Claynosaurz',
+  famous_fox_federation:           'Famous Fox Federation',
+  okay_bears:                      'Okay Bears',
+  degods:                          'DeGods',
+  solana_monkey_business:          'Solana Monkey Business',
+  froganas:                        'Frogana',
+  transdimensional_fox_federation: 'Transdimensional Fox Federation',
+  aurory:                          'Aurory',
 };
+
+const LAMPORTS = 1_000_000_000; // 1 SOL = 1e9 lamports
+
+/** Proxy response shape — values in lamports */
+interface ProxyCollection {
+  slug: string;
+  floorPrice: number;
+  listedCount: number;
+  avgPrice24hr: number;
+  volumeAll: number;
+}
 
 export async function fetchNFTData(): Promise<NFTSummary> {
   const now = Date.now();
@@ -40,55 +52,37 @@ export async function fetchNFTData(): Promise<NFTSummary> {
 
   try {
     const res = await fetch('/api/nft-stats', {
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(20_000),
       headers: { Accept: 'application/json' },
     });
-    if (!res.ok) throw new Error(`Proxy returned ${res.status}`);
+    if (!res.ok) throw new Error(`Proxy ${res.status}`);
 
-    const data = await res.json() as {
-      collections: Array<{
-        slug: string;
-        floorPrice: number;      // lamports
-        listedCount: number;
-        avgPrice24hr: number;    // lamports
-        volumeAll: number;       // lamports
-      }>;
-    };
+    const body = (await res.json()) as { collections: ProxyCollection[] };
+    const raw = body.collections ?? [];
 
-    const items = data.collections || [];
-
-    const collections: NFTCollection[] = items
-      .filter(d => d && d.floorPrice > 0)
-      .map(d => {
-        const slug = d.slug || '';
-        const meta = COLLECTION_META[slug];
-        return {
-          name: meta?.name || slug,
-          slug,
-          floorPrice: d.floorPrice / 1e9,
-          avgPrice24h: (d.avgPrice24hr || 0) / 1e9,
-          volumeAll: (d.volumeAll || 0) / 1e9,
-          listed: d.listedCount || 0,
-          marketplace: meta?.marketplace || 'both',
-        };
-      })
+    const collections: NFTCollection[] = raw
+      .filter((d) => d && d.floorPrice > 0)
+      .map((d) => ({
+        name: NAMES[d.slug] ?? d.slug,
+        slug: d.slug,
+        floorPrice:  d.floorPrice  / LAMPORTS,
+        avgPrice24h: (d.avgPrice24hr ?? 0) / LAMPORTS,
+        volumeAll:   (d.volumeAll ?? 0)    / LAMPORTS,
+        listed:      d.listedCount ?? 0,
+      }))
       .sort((a, b) => b.volumeAll - a.volumeAll);
 
     const totalFloorValue = collections.reduce(
-      (sum, c) => sum + c.floorPrice * c.listed, 0
+      (sum, c) => sum + c.floorPrice * c.listed,
+      0,
     );
 
-    const summary: NFTSummary = {
-      topCollections: collections,
-      totalFloorValue,
-    };
-
+    const summary: NFTSummary = { topCollections: collections, totalFloorValue };
     cachedSummary = summary;
     lastFetch = now;
     return summary;
   } catch (e) {
-    console.warn('[NFT] Failed to fetch NFT data:', e);
-    // Return stale cache if available, otherwise empty
+    console.warn('[NFT] fetch failed:', e);
     if (cachedSummary) return cachedSummary;
     return { topCollections: [], totalFloorValue: 0 };
   }
