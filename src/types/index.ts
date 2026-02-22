@@ -464,16 +464,6 @@ export interface PumpFunToken {
   replies: number;
 }
 
-export interface MevBundle {
-  bundleId: string;
-  tipLamports: number;
-  txCount: number;
-  slot: number;
-  timestamp: number;
-  landedTxCount: number;
-  type: 'arb' | 'liquidation' | 'sandwich' | 'backrun' | 'unknown';
-}
-
 export interface DePINNode {
   id: string;
   network: 'helium-iot' | 'helium-mobile' | 'render' | 'ionet' | 'hivemapper' | 'grass' | 'geodnet' | 'nosana' | 'shadow' | 'other';

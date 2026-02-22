@@ -880,8 +880,17 @@
   font-size: 0.7rem;
   color: var(--text-dim);
   font-weight: 500;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 4px;
+}
+
+.mev-bundle-avg {
+  font-weight: 400;
+  font-size: 0.6rem;
+  color: var(--solana-purple);
+  margin-left: auto;
 }
 
 .mev-tip-distribution {
@@ -889,43 +898,31 @@
   border-top: 1px solid var(--border);
 }
 
-.mev-tip-bar {
-  display: flex;
-  height: 8px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--border);
-}
-
-.tip-segment { height: 100%; }
-.tip-low { background: var(--solana-green); }
-.tip-med { background: #FFD700; }
-.tip-high { background: #FF4444; }
-
-.mev-tip-legend {
-  display: flex;
-  gap: 8px;
+.mev-percentile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
   margin-top: 4px;
 }
 
-.tip-legend-item {
-  font-size: 0.6rem;
-  color: var(--text-dim);
+.mev-pctl {
   display: flex;
-  align-items: center;
-  gap: 3px;
+  flex-direction: column;
+  gap: 1px;
 }
 
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: inline-block;
+.pctl-label {
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
 }
 
-.tip-low-dot { background: var(--solana-green); }
-.tip-med-dot { background: #FFD700; }
-.tip-high-dot { background: #FF4444; }
+.pctl-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
 
 .mev-bundles-section {
   padding: 8px;
@@ -941,15 +938,11 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.mev-bundle-type {
-  font-weight: 600;
-  white-space: nowrap;
+.mev-bundle-id {
+  color: var(--text-dim);
+  font-family: monospace;
+  font-size: 0.65rem;
 }
-
-.type-arb { color: #00D4FF; }
-.type-liquidation { color: #FF4444; }
-.type-sandwich { color: #FFD700; }
-.type-backrun { color: var(--solana-green); }
 
 .mev-bundle-tip {
   font-variant-numeric: tabular-nums;
@@ -963,6 +956,13 @@
 .mev-bundle-time {
   color: var(--text-dim);
   margin-left: auto;
+}
+
+.mev-no-data {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 12px 0;
 }
 
 /* ============================================================
