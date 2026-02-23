@@ -431,6 +431,59 @@ canvas,
 }
 
 /* CA copy button */
+.header-ca-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.header-ca-btn:hover {
+  border-color: var(--green);
+  color: var(--text);
+}
+.header-ca-btn.copied {
+  border-color: var(--green);
+  background: rgba(20, 241, 149, 0.1);
+  color: var(--green);
+}
+.header-bags-icon {
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+.header-ca-label {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+.header-ca-addr {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+}
+
+/* Bags.fm external link */
+.header-bags-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  transition: color 0.2s;
+  padding: 4px;
+  border-radius: 4px;
+}
+.header-bags-link:hover {
+  color: var(--green);
+}
+
 /* Open-source label */
 .header-opensource-label {
   font-size: 13px;

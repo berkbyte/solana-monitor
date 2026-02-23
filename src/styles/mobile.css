@@ -68,6 +68,15 @@ html, body {
     padding: 10px 16px;
   }
 
+  .header-ca-addr {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+  }
+
   .header-opensource-label {
     display: none;
   }
@@ -164,7 +173,51 @@ html, body {
     height: 16px;
   }
 
+  /* CA Button — pill with truncated address */
+  .header-ca-btn {
+    max-width: 120px;
+    overflow: hidden;
+    padding: 5px 10px !important;
+    font-size: 10px !important;
+    border-radius: 20px;
+    gap: 5px !important;
+    background: var(--overlay-subtle);
+    border-color: var(--border);
+    transition: all 0.2s;
+  }
+
+  .header-ca-btn:active {
+    transform: scale(0.96);
+    background: rgba(20, 241, 149, 0.1);
+    border-color: var(--solana-green, #14F195);
+  }
+
+  .header-ca-btn .header-bags-icon {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  .header-ca-addr {
+    max-width: 50px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+    font-size: 10px !important;
+  }
+
+  .header-ca-label {
+    font-size: 10px !important;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+  }
+
   /* Hide verbose labels */
+  .header-bags-link {
+    display: none !important;
+  }
+
   .header-opensource-label {
     display: none !important;
   }
@@ -616,6 +669,11 @@ html, body {
   .logo {
     font-size: 12px !important;
     letter-spacing: 1.2px;
+  }
+
+  /* Hide CA button on tiny screens */
+  .header-ca-btn {
+    display: none !important;
   }
 
   /* Smaller map */

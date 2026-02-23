@@ -126,6 +126,14 @@ export class App {
             <svg class="header-x-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
             <span>@solanamonitor</span>
           </a>
+          <button class="header-ca-btn" id="headerCABtn" title="Click to copy CA">
+            <img class="header-bags-icon" src="https://play-lh.googleusercontent.com/X90KzHNIA8GEeYNvR6CqEP50-GDqhmBkMunu6MH0UfhNXcWyhOqniwQmypH9yXVH-2jc=w240-h480-rw" alt="Bags" width="18" height="18" />
+            <span class="header-ca-label">CA</span>
+            <span class="header-ca-addr" id="headerCAAddr">ERPGD6N8n8m3G1UN1H3fDCHF65g73EoKYWqETD4MBAGS</span>
+          </button>
+          <a class="header-bags-link" href="https://bags.fm/ERPGD6N8n8m3G1UN1H3fDCHF65g73EoKYWqETD4MBAGS" target="_blank" rel="noopener" title="View on Bags.fm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </a>
         </div>
         <div class="header-right">
           <span class="header-opensource-label">Open-source & Free</span>
@@ -670,7 +678,22 @@ export class App {
         : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
     });
 
-
+    // CA copy button
+    const caBtn = document.getElementById('headerCABtn');
+    const caAddr = document.getElementById('headerCAAddr');
+    caBtn?.addEventListener('click', () => {
+      const addr = caAddr?.textContent?.trim();
+      if (!addr) return;
+      navigator.clipboard.writeText(addr).then(() => {
+        caBtn.classList.add('copied');
+        const orig = caAddr!.textContent;
+        caAddr!.textContent = 'Copied!';
+        setTimeout(() => {
+          caBtn.classList.remove('copied');
+          caAddr!.textContent = orig!;
+        }, 1000);
+      }).catch(() => {});
+    });
 
     // Settings modal
     const settingsBtn = document.getElementById('settingsBtn');
