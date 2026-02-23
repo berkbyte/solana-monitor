@@ -304,6 +304,39 @@ export default defineConfig({
           return `/fred/series/observations?series_id=${seriesId}&api_key=${apiKey}&file_type=json&sort_order=desc&limit=10${start ? `&observation_start=${start}` : ''}${end ? `&observation_end=${end}` : ''}`;
         },
       },
+      // Jito Tip Floor API (CORS-restricted to explorer.jito.wtf)
+      '/api/jito-tips': {
+        target: 'https://bundles.jito.wtf',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/jito-tips/, '/api/v1/bundles/tip_floor'),
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            console.log('Jito tip_floor proxy error:', err.message);
+          });
+        },
+      },
+      // Jito Recent Bundles API (CORS-restricted)
+      '/api/jito-bundles': {
+        target: 'https://bundles.jito.wtf',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/jito-bundles/, '/api/v1/bundles/recent'),
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            console.log('Jito bundles proxy error:', err.message);
+          });
+        },
+      },
+      // Jito Validators API (CORS-restricted)
+      '/api/jito-validators': {
+        target: 'https://kobe.mainnet.jito.network',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/jito-validators/, '/api/v1/validators'),
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            console.log('Jito validators proxy error:', err.message);
+          });
+        },
+      },
       // RSS Feeds - BBC
       '/rss/bbc': {
         target: 'https://feeds.bbci.co.uk',

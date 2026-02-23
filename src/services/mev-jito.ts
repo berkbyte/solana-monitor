@@ -3,6 +3,19 @@
 // Recent bundles: https://bundles.jito.wtf/api/v1/bundles/recent
 // Validators: https://kobe.mainnet.jito.network/api/v1/validators
 
+// In dev, Jito APIs are CORS-restricted (only allow explorer.jito.wtf).
+// We proxy through Vite dev server to bypass CORS.
+const isDev = import.meta.env.DEV;
+const JITO_TIP_FLOOR_URL = isDev
+  ? '/api/jito-tips'
+  : 'https://bundles.jito.wtf/api/v1/bundles/tip_floor';
+const JITO_BUNDLES_URL = isDev
+  ? '/api/jito-bundles'
+  : 'https://bundles.jito.wtf/api/v1/bundles/recent';
+const JITO_VALIDATORS_URL = isDev
+  ? '/api/jito-validators'
+  : 'https://kobe.mainnet.jito.network/api/v1/validators';
+
 export interface RecentBundle {
   bundleId: string;
   tipLamports: number;   // landedTipLamports from API
@@ -37,7 +50,7 @@ let lastTipFloor: TipFloor | null = null;
 // Returns values in SOL (not lamports). API returns a single-element array.
 async function fetchTipFloor(): Promise<TipFloor | null> {
   try {
-    const res = await fetch('https://bundles.jito.wtf/api/v1/bundles/tip_floor', {
+    const res = await fetch(JITO_TIP_FLOOR_URL, {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return lastTipFloor;
@@ -66,7 +79,7 @@ async function fetchTipFloor(): Promise<TipFloor | null> {
 // API returns: { bundleId, timestamp (ISO), tippers[], transactions[], landedTipLamports }
 async function fetchRecentBundles(): Promise<RecentBundle[]> {
   try {
-    const res = await fetch('https://bundles.jito.wtf/api/v1/bundles/recent?limit=20', {
+    const res = await fetch(`${JITO_BUNDLES_URL}?limit=20`, {
       signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) return [];
@@ -100,7 +113,7 @@ async function fetchJitoStakeInfo(): Promise<JitoStakeInfo> {
   let jitoStakeLamports = 0;
   let jitoCount = 0;
   try {
-    const res = await fetch('https://kobe.mainnet.jito.network/api/v1/validators', {
+    const res = await fetch(JITO_VALIDATORS_URL, {
       signal: AbortSignal.timeout(8000),
     });
     if (res.ok) {
