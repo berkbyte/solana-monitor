@@ -15,7 +15,7 @@ type ChartMode = 'price' | 'mcap';
 
 const STORAGE_KEY = 'solanaterminal-live-charts';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
-const TOKEN_MINT = 'HYvUDMu6jwPSiK3X91JjCU91wtrdbuVvjN2QnueCpump';
+const TOKEN_MINT = 'ERPGD6N8n8m3G1UN1H3fDCHF65g73EoKYWqETD4MBAGS';
 
 /* ------------------------------------------------------------------ */
 /*  LiveChartsPanel                                                    */
@@ -48,7 +48,7 @@ export class LiveChartsPanel extends Panel {
           this.tabs = saved;
           // Ensure project token tab exists (added after initial release)
           if (!this.tabs.some(t => t.ca === TOKEN_MINT)) {
-            this.tabs.splice(1, 0, { id: 'token-default', label: 'SOLMON / SOL', pairAddress: '', ca: TOKEN_MINT });
+            this.tabs.splice(1, 0, { id: 'token-default', label: 'BAGS / SOL', pairAddress: '', ca: TOKEN_MINT });
           }
           this.activeTabId = saved[0]!.id;
           return;
@@ -59,7 +59,7 @@ export class LiveChartsPanel extends Panel {
     // Default: SOL + project token charts (pairAddress resolved async)
     this.tabs = [
       { id: 'sol-default', label: 'SOL / USD', pairAddress: '', ca: SOL_MINT },
-      { id: 'token-default', label: 'SOLMON / SOL', pairAddress: '', ca: TOKEN_MINT },
+      { id: 'token-default', label: 'BAGS / SOL', pairAddress: '', ca: TOKEN_MINT },
     ];
     this.activeTabId = 'sol-default';
   }
