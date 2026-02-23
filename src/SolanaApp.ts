@@ -127,7 +127,7 @@ export class App {
             <span>@solanamonitor</span>
           </a>
           <button class="header-ca-btn" id="headerCABtn" title="Click to copy CA">
-            <img class="header-bags-icon" src="https://play-lh.googleusercontent.com/X90KzHNIA8GEeYNvR6CqEP50-GDqhmBkMunu6MH0UfhNXcWyhOqniwQmypH9yXVH-2jc=w240-h480-rw" alt="Bags" width="18" height="18" />
+            <img class="header-bags-icon" src="https://bags.fm/assets/images/bags-icon.png" alt="Bags" width="18" height="18" />
             <span class="header-ca-label">CA</span>
             <span class="header-ca-addr" id="headerCAAddr">ERPGD6N8n8m3G1UN1H3fDCHF65g73EoKYWqETD4MBAGS</span>
           </button>
