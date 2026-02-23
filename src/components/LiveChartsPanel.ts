@@ -45,12 +45,14 @@ export class LiveChartsPanel extends Panel {
       if (raw) {
         const saved: ChartTab[] = JSON.parse(raw);
         if (Array.isArray(saved) && saved.length > 0) {
-          this.tabs = saved;
-          // Ensure project token tab exists (added after initial release)
+          // Migration: remove any old default token tabs (e.g. SOLMON)
+          this.tabs = saved.filter(t => t.id !== 'token-default' || t.ca === TOKEN_MINT);
+          // Ensure current project token tab exists
           if (!this.tabs.some(t => t.ca === TOKEN_MINT)) {
             this.tabs.splice(1, 0, { id: 'token-default', label: 'BAGS / SOL', pairAddress: '', ca: TOKEN_MINT });
           }
-          this.activeTabId = saved[0]!.id;
+          this.activeTabId = this.tabs[0]!.id;
+          this.saveToStorage();
           return;
         }
       }
