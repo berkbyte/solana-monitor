@@ -740,7 +740,7 @@ canvas,
 .panels-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  grid-auto-rows: minmax(200px, 380px);
+  grid-auto-rows: minmax(auto, 380px);
   gap: 4px;
   padding: 4px;
   align-content: start;
@@ -759,7 +759,7 @@ canvas,
   height: 100%;
   min-height: 200px;
   cursor: grab;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform 0.15s, box-shadow 0.15s, min-height 0.2s, max-height 0.2s;
   position: relative;
 }
 
@@ -768,10 +768,10 @@ canvas,
 }
 
 /* Row span classes for resizable panels */
-.panel.span-1 { grid-row: span 1 !important; min-height: 200px !important; }
-.panel.span-2 { grid-row: span 2 !important; min-height: 400px !important; }
-.panel.span-3 { grid-row: span 3 !important; min-height: 600px !important; }
-.panel.span-4 { grid-row: span 4 !important; min-height: 800px !important; }
+.panel.span-1:not(.panel-collapsed):not(.panel-maximized) { grid-row: span 1 !important; min-height: 200px !important; }
+.panel.span-2:not(.panel-collapsed):not(.panel-maximized) { grid-row: span 2 !important; min-height: 400px !important; }
+.panel.span-3:not(.panel-collapsed):not(.panel-maximized) { grid-row: span 3 !important; min-height: 600px !important; }
+.panel.span-4:not(.panel-collapsed):not(.panel-maximized) { grid-row: span 4 !important; min-height: 800px !important; }
 
 .panel-resize-handle {
   position: absolute;
@@ -876,13 +876,16 @@ canvas,
 /* Collapsed panel: only header visible */
 .panel.panel-collapsed {
   min-height: 0 !important;
-  height: auto !important;
+  max-height: 34px !important;
+  height: 34px !important;
   grid-row: span 1 !important;
+  align-self: start;
+  overflow: hidden !important;
 }
 
 .panel.panel-collapsed .panel-content,
 .panel.panel-collapsed .panel-resize-handle {
-  display: none;
+  display: none !important;
 }
 
 .panel.panel-collapsed .panel-header {
@@ -916,12 +919,25 @@ canvas,
   grid-row: unset !important;
   grid-column: unset !important;
   cursor: default;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
   animation: panelMaximizeIn 0.2s ease-out;
 }
 
 .panel.panel-maximized .panel-content {
-  overflow-y: auto;
-  flex: 1;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+}
+
+.panel.panel-maximized .panel-content > * {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .panel.panel-maximized .panel-resize-handle {
@@ -935,6 +951,7 @@ canvas,
 .panel.panel-maximized .panel-header {
   background: var(--overlay-medium);
   border-bottom: 1px solid var(--solana-green);
+  flex-shrink: 0;
 }
 
 @keyframes panelMaximizeIn {
@@ -956,6 +973,24 @@ canvas,
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(4px);
   z-index: 9999;
+}
+
+/* Override span min-heights when maximized */
+.panel.panel-maximized.span-1,
+.panel.panel-maximized.span-2,
+.panel.panel-maximized.span-3,
+.panel.panel-maximized.span-4 {
+  min-height: 0 !important;
+}
+
+/* Override span min-heights when collapsed */
+.panel.panel-collapsed.span-1,
+.panel.panel-collapsed.span-2,
+.panel.panel-collapsed.span-3,
+.panel.panel-collapsed.span-4 {
+  min-height: 0 !important;
+  max-height: 34px !important;
+  height: 34px !important;
 }
 
 .panel-maximize-backdrop.visible {
