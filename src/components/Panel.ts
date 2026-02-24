@@ -12,6 +12,7 @@ export interface PanelOptions {
 }
 
 const PANEL_SPANS_KEY = 'solanaterminal-panel-spans';
+const PANEL_COLLAPSED_KEY = 'solanaterminal-panel-collapsed';
 
 function loadPanelSpans(): Record<string, number> {
   try {
@@ -26,6 +27,35 @@ function savePanelSpan(panelId: string, span: number): void {
   const spans = loadPanelSpans();
   spans[panelId] = span;
   localStorage.setItem(PANEL_SPANS_KEY, JSON.stringify(spans));
+}
+
+function loadCollapsedPanels(): Set<string> {
+  try {
+    const stored = localStorage.getItem(PANEL_COLLAPSED_KEY);
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsedPanels(collapsed: Set<string>): void {
+  localStorage.setItem(PANEL_COLLAPSED_KEY, JSON.stringify([...collapsed]));
+}
+
+/** Shared maximize backdrop — created once, reused */
+let maximizeBackdrop: HTMLElement | null = null;
+let maximizedPanel: Panel | null = null;
+
+function getOrCreateBackdrop(): HTMLElement {
+  if (!maximizeBackdrop) {
+    maximizeBackdrop = document.createElement('div');
+    maximizeBackdrop.className = 'panel-maximize-backdrop';
+    maximizeBackdrop.addEventListener('click', () => {
+      if (maximizedPanel) maximizedPanel.toggleMaximize();
+    });
+    document.body.appendChild(maximizeBackdrop);
+  }
+  return maximizeBackdrop;
 }
 
 function heightToSpan(height: number): number {
@@ -66,6 +96,14 @@ export class Panel {
   private onTouchMove: ((e: TouchEvent) => void) | null = null;
   private onTouchEnd: (() => void) | null = null;
   private onDocMouseUp: (() => void) | null = null;
+
+  /* --- Collapse / Expand / Maximize state --- */
+  private isCollapsed = false;
+  private isMaximized = false;
+  private collapseBtn!: HTMLButtonElement;
+  private expandBtn!: HTMLButtonElement;
+  private maximizeBtn!: HTMLButtonElement;
+  private onEscKey: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(options: PanelOptions) {
     this.panelId = options.id;
@@ -131,6 +169,33 @@ export class Panel {
       this.header.appendChild(this.countEl);
     }
 
+    // --- Panel control buttons (collapse / expand / maximize) ---
+    const controls = document.createElement('div');
+    controls.className = 'panel-controls';
+
+    this.collapseBtn = document.createElement('button');
+    this.collapseBtn.className = 'panel-ctrl-btn panel-collapse-btn';
+    this.collapseBtn.innerHTML = '▼';
+    this.collapseBtn.title = 'Collapse panel';
+    this.collapseBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleCollapse(); });
+
+    this.expandBtn = document.createElement('button');
+    this.expandBtn.className = 'panel-ctrl-btn panel-expand-btn';
+    this.expandBtn.innerHTML = '⤢';
+    this.expandBtn.title = 'Expand panel (cycle size)';
+    this.expandBtn.addEventListener('click', (e) => { e.stopPropagation(); this.cycleExpand(); });
+
+    this.maximizeBtn = document.createElement('button');
+    this.maximizeBtn.className = 'panel-ctrl-btn panel-maximize-btn';
+    this.maximizeBtn.innerHTML = '⛶';
+    this.maximizeBtn.title = 'Maximize panel';
+    this.maximizeBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleMaximize(); });
+
+    controls.appendChild(this.collapseBtn);
+    controls.appendChild(this.expandBtn);
+    controls.appendChild(this.maximizeBtn);
+    this.header.appendChild(controls);
+
     this.content = document.createElement('div');
     this.content.className = 'panel-content';
     this.content.id = `${options.id}Content`;
@@ -151,6 +216,15 @@ export class Panel {
     const savedSpan = savedSpans[this.panelId];
     if (savedSpan && savedSpan > 1) {
       setSpanClass(this.element, savedSpan);
+    }
+
+    // Restore collapsed state
+    const collapsedSet = loadCollapsedPanels();
+    if (collapsedSet.has(this.panelId)) {
+      this.isCollapsed = true;
+      this.element.classList.add('panel-collapsed');
+      this.collapseBtn.innerHTML = '▲';
+      this.collapseBtn.title = 'Expand panel';
     }
 
     this.showLoading();
@@ -265,6 +339,82 @@ export class Panel {
     document.addEventListener('touchmove', this.onTouchMove, { passive: false });
     document.addEventListener('touchend', this.onTouchEnd);
     document.addEventListener('mouseup', this.onDocMouseUp);
+  }
+
+  /* ================================================================
+     Collapse / Expand / Maximize
+     ================================================================ */
+
+  /** Toggle collapsed state (only header visible) */
+  public toggleCollapse(): void {
+    if (this.isMaximized) return; // can't collapse while maximized
+    this.isCollapsed = !this.isCollapsed;
+    this.element.classList.toggle('panel-collapsed', this.isCollapsed);
+    this.collapseBtn.innerHTML = this.isCollapsed ? '▲' : '▼';
+    this.collapseBtn.title = this.isCollapsed ? 'Expand panel' : 'Collapse panel';
+
+    // Persist
+    const collapsed = loadCollapsedPanels();
+    if (this.isCollapsed) collapsed.add(this.panelId);
+    else collapsed.delete(this.panelId);
+    saveCollapsedPanels(collapsed);
+  }
+
+  /** Cycle expand: span-1 → span-2 → span-3 → span-4 → span-1 */
+  public cycleExpand(): void {
+    if (this.isMaximized) return;
+    if (this.isCollapsed) {
+      this.toggleCollapse(); // uncollapse first
+    }
+    const cur = this.element.classList.contains('span-4') ? 4 :
+                this.element.classList.contains('span-3') ? 3 :
+                this.element.classList.contains('span-2') ? 2 : 1;
+    const next = cur >= 4 ? 1 : cur + 1;
+    if (next === 1) {
+      this.element.classList.remove('resized', 'span-1', 'span-2', 'span-3', 'span-4');
+      const spans = loadPanelSpans();
+      delete spans[this.panelId];
+      localStorage.setItem(PANEL_SPANS_KEY, JSON.stringify(spans));
+    } else {
+      setSpanClass(this.element, next);
+      savePanelSpan(this.panelId, next);
+    }
+  }
+
+  /** Toggle maximize (overlay mode) */
+  public toggleMaximize(): void {
+    this.isMaximized = !this.isMaximized;
+    const backdrop = getOrCreateBackdrop();
+
+    if (this.isMaximized) {
+      // Uncollapse if needed
+      if (this.isCollapsed) this.toggleCollapse();
+
+      maximizedPanel = this;
+      backdrop.classList.add('visible');
+      this.element.classList.add('panel-maximized');
+      this.maximizeBtn.innerHTML = '⤓';
+      this.maximizeBtn.title = 'Restore panel';
+      document.body.classList.add('panel-maximize-active');
+
+      // ESC to close
+      this.onEscKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') this.toggleMaximize();
+      };
+      document.addEventListener('keydown', this.onEscKey);
+    } else {
+      maximizedPanel = null;
+      backdrop.classList.remove('visible');
+      this.element.classList.remove('panel-maximized');
+      this.maximizeBtn.innerHTML = '⛶';
+      this.maximizeBtn.title = 'Maximize panel';
+      document.body.classList.remove('panel-maximize-active');
+
+      if (this.onEscKey) {
+        document.removeEventListener('keydown', this.onEscKey);
+        this.onEscKey = null;
+      }
+    }
   }
 
 
@@ -398,6 +548,7 @@ export class Panel {
    * Clean up event listeners and resources
    */
   public destroy(): void {
+    if (this.isMaximized) this.toggleMaximize();
     if (this.tooltipCloseHandler) {
       document.removeEventListener('click', this.tooltipCloseHandler);
       this.tooltipCloseHandler = null;
@@ -413,6 +564,10 @@ export class Panel {
     if (this.onDocMouseUp) {
       document.removeEventListener('mouseup', this.onDocMouseUp);
       this.onDocMouseUp = null;
+    }
+    if (this.onEscKey) {
+      document.removeEventListener('keydown', this.onEscKey);
+      this.onEscKey = null;
     }
   }
 }

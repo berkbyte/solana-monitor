@@ -828,6 +828,151 @@ canvas,
   box-shadow: 0 8px 24px rgba(0, 255, 136, 0.2);
 }
 
+/* ============================================================
+   PANEL CONTROLS (Collapse / Expand / Maximize)
+   ============================================================ */
+
+.panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.panel-ctrl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  padding: 0;
+  line-height: 1;
+  opacity: 0;
+}
+
+.panel:hover .panel-ctrl-btn,
+.panel-maximized .panel-ctrl-btn {
+  opacity: 1;
+}
+
+.panel-ctrl-btn:hover {
+  background: var(--overlay-medium);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.panel-collapse-btn:hover { color: #FFD700; }
+.panel-expand-btn:hover   { color: #14F195; }
+.panel-maximize-btn:hover { color: #9945FF; }
+
+/* Collapsed panel: only header visible */
+.panel.panel-collapsed {
+  min-height: 0 !important;
+  height: auto !important;
+  grid-row: span 1 !important;
+}
+
+.panel.panel-collapsed .panel-content,
+.panel.panel-collapsed .panel-resize-handle {
+  display: none;
+}
+
+.panel.panel-collapsed .panel-header {
+  border-bottom: none;
+}
+
+.panel.panel-collapsed .panel-expand-btn,
+.panel.panel-collapsed .panel-maximize-btn {
+  display: none;
+}
+
+.panel.panel-collapsed .panel-ctrl-btn {
+  opacity: 1;
+}
+
+/* Maximized panel: overlay mode */
+.panel.panel-maximized {
+  position: fixed !important;
+  top: 60px;
+  left: 5vw;
+  right: 5vw;
+  bottom: 30px;
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  z-index: 10000;
+  border-radius: 8px;
+  border: 1px solid var(--solana-green);
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--solana-green);
+  grid-row: unset !important;
+  grid-column: unset !important;
+  cursor: default;
+  animation: panelMaximizeIn 0.2s ease-out;
+}
+
+.panel.panel-maximized .panel-content {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.panel.panel-maximized .panel-resize-handle {
+  display: none;
+}
+
+.panel.panel-maximized .panel-ctrl-btn {
+  opacity: 1;
+}
+
+.panel.panel-maximized .panel-header {
+  background: var(--overlay-medium);
+  border-bottom: 1px solid var(--solana-green);
+}
+
+@keyframes panelMaximizeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Maximize backdrop */
+.panel-maximize-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+}
+
+.panel-maximize-backdrop.visible {
+  display: block;
+  animation: backdropFadeIn 0.2s ease-out;
+}
+
+@keyframes backdropFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Prevent body scroll when maximized */
+body.panel-maximize-active {
+  overflow: hidden;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
