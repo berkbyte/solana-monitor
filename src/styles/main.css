@@ -932,12 +932,30 @@ canvas,
   min-height: 0 !important;
   max-height: none !important;
   height: auto !important;
+  contain: none !important;
+  will-change: auto;
 }
 
 .panel.panel-maximized .panel-content > * {
   max-width: 100%;
   overflow-wrap: break-word;
   word-break: break-word;
+}
+
+/* Downgrade containment on virtual scroll containers so they reflow at new size */
+.panel.panel-maximized .windowed-list,
+.panel.panel-maximized .virtual-viewport {
+  contain: content !important;
+}
+
+/* Remove max-height caps on inner containers when maximized */
+.panel.panel-maximized .status-panel-content,
+.panel.panel-maximized .economic-content,
+.panel.panel-maximized .cascade-countries,
+.panel.panel-maximized .risk-countries,
+.panel.panel-maximized .risk-alerts,
+.panel.panel-maximized .findings-content {
+  max-height: none;
 }
 
 .panel.panel-maximized .panel-resize-handle {
@@ -6881,7 +6899,7 @@ a.prediction-link:hover {
 /* Performance hints for scrolling */
 .panel-content {
   will-change: scroll-position;
-  contain: layout style;
+  contain: style;
 }
 
 /* Mobile Warning Modal */
@@ -7110,6 +7128,17 @@ a.prediction-link:hover {
     width: 100% !important;
     min-height: 300px;
     max-height: 400px;
+  }
+
+  .panel.panel-maximized {
+    min-height: 0 !important;
+    max-height: none !important;
+    width: auto !important;
+  }
+
+  .panel.panel-collapsed {
+    min-height: 0 !important;
+    max-height: 34px !important;
   }
 
   /* Make map section smaller on mobile to show panels */
