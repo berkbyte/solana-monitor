@@ -42,21 +42,7 @@ function saveCollapsedPanels(collapsed: Set<string>): void {
   localStorage.setItem(PANEL_COLLAPSED_KEY, JSON.stringify([...collapsed]));
 }
 
-/** Shared maximize backdrop — created once, reused */
-let maximizeBackdrop: HTMLElement | null = null;
-let maximizedPanel: Panel | null = null;
-
-function getOrCreateBackdrop(): HTMLElement {
-  if (!maximizeBackdrop) {
-    maximizeBackdrop = document.createElement('div');
-    maximizeBackdrop.className = 'panel-maximize-backdrop';
-    maximizeBackdrop.addEventListener('click', () => {
-      if (maximizedPanel) maximizedPanel.toggleMaximize();
-    });
-    document.body.appendChild(maximizeBackdrop);
-  }
-  return maximizeBackdrop;
-}
+/** No longer using backdrop for maximize — enlarged in-grid instead */
 
 function heightToSpan(height: number): number {
   // Much lower thresholds for responsive resizing
@@ -100,10 +86,10 @@ export class Panel {
   /* --- Collapse / Expand / Maximize state --- */
   private isCollapsed = false;
   private isMaximized = false;
+  private _savedSpan = 1;
   private collapseBtn!: HTMLButtonElement;
   private expandBtn!: HTMLButtonElement;
   private maximizeBtn!: HTMLButtonElement;
-  private onEscKey: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(options: PanelOptions) {
     this.panelId = options.id;
@@ -187,8 +173,8 @@ export class Panel {
 
     this.maximizeBtn = document.createElement('button');
     this.maximizeBtn.className = 'panel-ctrl-btn panel-maximize-btn';
-    this.maximizeBtn.innerHTML = '⛶';
-    this.maximizeBtn.title = 'Maximize panel';
+    this.maximizeBtn.innerHTML = '⤢';
+    this.maximizeBtn.title = 'Enlarge panel (3x)';
     this.maximizeBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleMaximize(); });
 
     controls.appendChild(this.collapseBtn);
@@ -381,39 +367,45 @@ export class Panel {
     }
   }
 
-  /** Toggle maximize (overlay mode) */
+  /** Toggle enlarge: switch between current span and span-3 */
   public toggleMaximize(): void {
     this.isMaximized = !this.isMaximized;
-    const backdrop = getOrCreateBackdrop();
 
     if (this.isMaximized) {
       // Uncollapse if needed
       if (this.isCollapsed) this.toggleCollapse();
 
-      maximizedPanel = this;
-      backdrop.classList.add('visible');
-      this.element.classList.add('panel-maximized');
-      this.maximizeBtn.innerHTML = '⤓';
-      this.maximizeBtn.title = 'Restore panel';
-      document.body.classList.add('panel-maximize-active');
+      // Save current span so we can restore later
+      const cur = this.element.classList.contains('span-4') ? 4 :
+                  this.element.classList.contains('span-3') ? 3 :
+                  this.element.classList.contains('span-2') ? 2 : 1;
+      this._savedSpan = cur;
 
-      // ESC to close
-      this.onEscKey = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') this.toggleMaximize();
-      };
-      document.addEventListener('keydown', this.onEscKey);
+      // Set to span-3
+      setSpanClass(this.element, 3);
+      savePanelSpan(this.panelId, 3);
+      this.element.classList.add('panel-enlarged');
+      this.maximizeBtn.innerHTML = '⤡';
+      this.maximizeBtn.title = 'Restore panel size';
+
+      // Scroll panel into view
+      this.element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else {
-      maximizedPanel = null;
-      backdrop.classList.remove('visible');
-      this.element.classList.remove('panel-maximized');
-      this.maximizeBtn.innerHTML = '⛶';
-      this.maximizeBtn.title = 'Maximize panel';
-      document.body.classList.remove('panel-maximize-active');
+      this.element.classList.remove('panel-enlarged');
 
-      if (this.onEscKey) {
-        document.removeEventListener('keydown', this.onEscKey);
-        this.onEscKey = null;
+      // Restore to saved span
+      const restore = this._savedSpan || 1;
+      if (restore === 1) {
+        this.element.classList.remove('resized', 'span-1', 'span-2', 'span-3', 'span-4');
+        const spans = loadPanelSpans();
+        delete spans[this.panelId];
+        localStorage.setItem(PANEL_SPANS_KEY, JSON.stringify(spans));
+      } else {
+        setSpanClass(this.element, restore);
+        savePanelSpan(this.panelId, restore);
       }
+      this.maximizeBtn.innerHTML = '⤢';
+      this.maximizeBtn.title = 'Enlarge panel (3x)';
     }
   }
 
@@ -564,10 +556,6 @@ export class Panel {
     if (this.onDocMouseUp) {
       document.removeEventListener('mouseup', this.onDocMouseUp);
       this.onDocMouseUp = null;
-    }
-    if (this.onEscKey) {
-      document.removeEventListener('keydown', this.onEscKey);
-      this.onEscKey = null;
     }
   }
 }

@@ -768,10 +768,10 @@ canvas,
 }
 
 /* Row span classes for resizable panels */
-.panel.span-1:not(.panel-collapsed):not(.panel-maximized) { grid-row: span 1 !important; min-height: 200px !important; }
-.panel.span-2:not(.panel-collapsed):not(.panel-maximized) { grid-row: span 2 !important; min-height: 400px !important; }
-.panel.span-3:not(.panel-collapsed):not(.panel-maximized) { grid-row: span 3 !important; min-height: 600px !important; }
-.panel.span-4:not(.panel-collapsed):not(.panel-maximized) { grid-row: span 4 !important; min-height: 800px !important; }
+.panel.span-1:not(.panel-collapsed) { grid-row: span 1 !important; min-height: 200px !important; }
+.panel.span-2:not(.panel-collapsed) { grid-row: span 2 !important; min-height: 400px !important; }
+.panel.span-3:not(.panel-collapsed) { grid-row: span 3 !important; min-height: 600px !important; }
+.panel.span-4:not(.panel-collapsed) { grid-row: span 4 !important; min-height: 800px !important; }
 
 .panel-resize-handle {
   position: absolute;
@@ -859,7 +859,7 @@ canvas,
 }
 
 .panel:hover .panel-ctrl-btn,
-.panel-maximized .panel-ctrl-btn {
+.panel-enlarged .panel-ctrl-btn {
   opacity: 1;
 }
 
@@ -901,104 +901,18 @@ canvas,
   opacity: 1;
 }
 
-/* Maximized panel: overlay mode */
-.panel.panel-maximized {
-  position: fixed !important;
-  top: 60px;
-  left: 5vw;
-  right: 5vw;
-  bottom: 30px;
-  width: auto !important;
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  z-index: 10000;
-  border-radius: 8px;
-  border: 1px solid var(--solana-green);
-  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--solana-green);
-  grid-row: unset !important;
-  grid-column: unset !important;
-  cursor: default;
-  display: flex !important;
-  flex-direction: column !important;
-  overflow: hidden !important;
-  animation: panelMaximizeIn 0.2s ease-out;
+/* Enlarged panel: in-grid 3x size with highlight border */
+.panel.panel-enlarged {
+  border-color: var(--solana-green);
+  box-shadow: 0 0 12px rgba(0, 255, 136, 0.15);
 }
 
-.panel.panel-maximized .panel-content {
-  overflow-y: auto !important;
-  overflow-x: hidden;
-  flex: 1 1 0% !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  height: auto !important;
-  contain: none !important;
-  will-change: auto;
-}
-
-.panel.panel-maximized .panel-content > * {
-  max-width: 100%;
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-
-/* Downgrade containment on virtual scroll containers so they reflow at new size */
-.panel.panel-maximized .windowed-list,
-.panel.panel-maximized .virtual-viewport {
-  contain: content !important;
-}
-
-/* Remove max-height caps on inner containers when maximized */
-.panel.panel-maximized .status-panel-content,
-.panel.panel-maximized .economic-content,
-.panel.panel-maximized .cascade-countries,
-.panel.panel-maximized .risk-countries,
-.panel.panel-maximized .risk-alerts,
-.panel.panel-maximized .findings-content {
-  max-height: none;
-}
-
-.panel.panel-maximized .panel-resize-handle {
-  display: none;
-}
-
-.panel.panel-maximized .panel-ctrl-btn {
+.panel.panel-enlarged .panel-ctrl-btn {
   opacity: 1;
 }
 
-.panel.panel-maximized .panel-header {
-  background: var(--overlay-medium);
+.panel.panel-enlarged .panel-header {
   border-bottom: 1px solid var(--solana-green);
-  flex-shrink: 0;
-}
-
-@keyframes panelMaximizeIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* Maximize backdrop */
-.panel-maximize-backdrop {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-  z-index: 9999;
-}
-
-/* Override span min-heights when maximized */
-.panel.panel-maximized.span-1,
-.panel.panel-maximized.span-2,
-.panel.panel-maximized.span-3,
-.panel.panel-maximized.span-4 {
-  min-height: 0 !important;
 }
 
 /* Override span min-heights when collapsed */
@@ -1009,21 +923,6 @@ canvas,
   min-height: 0 !important;
   max-height: 34px !important;
   height: 34px !important;
-}
-
-.panel-maximize-backdrop.visible {
-  display: block;
-  animation: backdropFadeIn 0.2s ease-out;
-}
-
-@keyframes backdropFadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-/* Prevent body scroll when maximized */
-body.panel-maximize-active {
-  overflow: hidden;
 }
 
 .panel-header {
@@ -7130,10 +7029,8 @@ a.prediction-link:hover {
     max-height: 400px;
   }
 
-  .panel.panel-maximized {
-    min-height: 0 !important;
+  .panel.panel-enlarged {
     max-height: none !important;
-    width: auto !important;
   }
 
   .panel.panel-collapsed {
