@@ -18,11 +18,16 @@ export interface CATweet {
   handle: string;
   avatar: string;
   followers: number;
+  following: number;
+  statusesCount: number;
   likes: number;
   retweets: number;
   replies: number;
   views: number;
   date: string;
+  accountCreated: string;
+  verified: boolean;
+  defaultAvatar: boolean;
   url: string;
 }
 

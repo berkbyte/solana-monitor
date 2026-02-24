@@ -65,11 +65,16 @@ export default async function handler(req, res) {
       handle: t.user?.screen_name || '',
       avatar: t.user?.profile_image_url_https || '',
       followers: t.user?.followers_count || 0,
+      following: t.user?.friends_count || 0,
+      statusesCount: t.user?.statuses_count || 0,
       likes: t.favorite_count || 0,
       retweets: t.retweet_count || 0,
       replies: t.reply_count || 0,
       views: t.views_count || 0,
       date: t.tweet_created_at || t.created_at || '',
+      accountCreated: t.user?.created_at || '',
+      verified: t.user?.verified || t.user?.is_blue_verified || false,
+      defaultAvatar: t.user?.default_profile_image || false,
       url: t.user?.screen_name
         ? `https://x.com/${t.user.screen_name}/status/${t.id_str || t.id}`
         : '',

@@ -15,6 +15,7 @@ export class TokenAnalyzePanel extends Panel {
   private activeTab: TabId = 'analyze';
   private history: TokenAnalysis[] = [];
   private tabBar!: HTMLElement;
+  private hideBots = true; // hide bot tweets by default
 
 
   constructor() {
@@ -412,6 +413,11 @@ export class TokenAnalyzePanel extends Panel {
     const weightedColor = r.weightedScore > 15 ? '#14F195' :
                           r.weightedScore < -15 ? '#FF4444' : '#FFD700';
 
+    // Filter tweets based on hideBots toggle
+    const visibleTweets = this.hideBots
+      ? r.tweets.filter(t => t.botScore < 0.6 && !t.isDuplicate)
+      : r.tweets;
+
     this.content.innerHTML = `
       <div class="xs-card">
         <!-- Overall sentiment header -->
@@ -429,9 +435,9 @@ export class TokenAnalyzePanel extends Panel {
         <!-- Sentiment bar -->
         <div class="xs-bar-section">
           <div class="xs-bar">
-            <div class="xs-bar-bullish" style="width: ${r.totalTweets ? (r.bullishCount / r.totalTweets * 100) : 0}%"></div>
-            <div class="xs-bar-neutral" style="width: ${r.totalTweets ? (r.neutralCount / r.totalTweets * 100) : 0}%"></div>
-            <div class="xs-bar-bearish" style="width: ${r.totalTweets ? (r.bearishCount / r.totalTweets * 100) : 0}%"></div>
+            <div class="xs-bar-bullish" style="width: ${r.humanTweets ? (r.bullishCount / r.humanTweets * 100) : 0}%"></div>
+            <div class="xs-bar-neutral" style="width: ${r.humanTweets ? (r.neutralCount / r.humanTweets * 100) : 0}%"></div>
+            <div class="xs-bar-bearish" style="width: ${r.humanTweets ? (r.bearishCount / r.humanTweets * 100) : 0}%"></div>
           </div>
           <div class="xs-bar-labels">
             <span class="xs-bar-label bullish">🟢 ${r.bullishCount} Bullish</span>
@@ -442,18 +448,41 @@ export class TokenAnalyzePanel extends Panel {
 
         <!-- Stats -->
         <div class="xs-stats">
-          <div class="xs-stat"><span class="xs-stat-label">Tweets</span><span class="xs-stat-value">${r.totalTweets}</span></div>
+          <div class="xs-stat"><span class="xs-stat-label">Human</span><span class="xs-stat-value">${r.humanTweets}<span class="xs-stat-dim">/${r.totalTweets}</span></span></div>
           <div class="xs-stat"><span class="xs-stat-label">Avg Followers</span><span class="xs-stat-value">${this.fmtNum(r.avgFollowers)}</span></div>
-          <div class="xs-stat"><span class="xs-stat-label">Total Engagement</span><span class="xs-stat-value">${this.fmtNum(r.totalEngagement)}</span></div>
+          <div class="xs-stat"><span class="xs-stat-label">Engagement</span><span class="xs-stat-value">${this.fmtNum(r.totalEngagement)}</span></div>
+          ${r.botFiltered > 0 ? `<div class="xs-stat xs-stat-bot"><span class="xs-stat-label">🤖 Bots</span><span class="xs-stat-value">${r.botFiltered}</span></div>` : ''}
+          ${r.duplicatesRemoved > 0 ? `<div class="xs-stat xs-stat-dupe"><span class="xs-stat-label">♻️ Dupes</span><span class="xs-stat-value">${r.duplicatesRemoved}</span></div>` : ''}
+        </div>
+
+        <!-- Bot filter toggle -->
+        <div class="xs-filter-bar">
+          <label class="xs-toggle">
+            <input type="checkbox" class="xs-toggle-input" id="xsHideBots" ${this.hideBots ? 'checked' : ''} />
+            <span class="xs-toggle-slider"></span>
+            <span class="xs-toggle-label">Hide bots & duplicates</span>
+          </label>
+          ${r.botFiltered > 0 || r.duplicatesRemoved > 0
+            ? `<span class="xs-filter-info">${r.botFiltered + r.duplicatesRemoved} filtered</span>`
+            : ''}
         </div>
 
         <!-- Tweet list -->
-        <div class="xs-tweets-title">Recent Mentions</div>
+        <div class="xs-tweets-title">Recent Mentions <span class="xs-tweets-count">${visibleTweets.length} shown</span></div>
         <div class="xs-tweets">
-          ${r.tweets.map(t => this.renderSentimentTweet(t)).join('')}
+          ${visibleTweets.map(t => this.renderSentimentTweet(t)).join('')}
         </div>
       </div>
     `;
+
+    // Hide bots toggle handler
+    const toggle = this.content.querySelector('#xsHideBots') as HTMLInputElement;
+    if (toggle) {
+      toggle.addEventListener('change', () => {
+        this.hideBots = toggle.checked;
+        this.renderSentiment();
+      });
+    }
 
     // External link handlers
     this.content.querySelectorAll('.xs-tweet-link').forEach(link => {
@@ -469,15 +498,36 @@ export class TokenAnalyzePanel extends Panel {
                      ts.sentiment === 'bearish' ? '🔴' : '🟡';
     const timeAgo = this.tweetTimeAgo(t.date);
     const shortText = t.text.length > 200 ? t.text.slice(0, 200) + '...' : t.text;
+    const botPct = Math.round(ts.botScore * 100);
+    const isBot = ts.botScore >= 0.6;
+    const isSuspect = ts.botScore >= 0.4 && ts.botScore < 0.6;
+
+    // Bot/dupe CSS classes
+    const tweetClasses = [
+      'xs-tweet',
+      isBot ? 'xs-tweet-bot' : '',
+      isSuspect ? 'xs-tweet-suspect' : '',
+      ts.isDuplicate ? 'xs-tweet-dupe' : '',
+    ].filter(Boolean).join(' ');
+
+    // Badges
+    const botBadge = isBot
+      ? `<span class="xs-bot-badge xs-bot-high" title="Bot probability: ${botPct}%">🤖 ${botPct}%</span>`
+      : isSuspect
+        ? `<span class="xs-bot-badge xs-bot-mid" title="Bot probability: ${botPct}%">🤖 ${botPct}%</span>`
+        : '';
+    const dupeBadge = ts.isDuplicate ? '<span class="xs-dupe-badge">♻️ Dupe</span>' : '';
+    const verifiedBadge = t.verified ? '<span class="xs-verified-badge" title="Verified">✓</span>' : '';
 
     return `
-      <div class="xs-tweet">
+      <div class="${tweetClasses}">
         <div class="xs-tweet-header">
           ${t.avatar ? `<img class="xs-tweet-avatar" src="${escapeHtml(t.avatar)}" alt="" onerror="this.style.display='none'" />` : ''}
           <div class="xs-tweet-author">
-            <span class="xs-tweet-name">${escapeHtml(t.author)}</span>
+            <span class="xs-tweet-name">${escapeHtml(t.author)}${verifiedBadge}</span>
             <span class="xs-tweet-handle">@${escapeHtml(t.handle)}</span>
           </div>
+          ${botBadge}${dupeBadge}
           <span class="xs-tweet-sentiment" style="color: ${sentColor}">${sentIcon}</span>
           <span class="xs-tweet-time">${timeAgo}</span>
         </div>

@@ -2141,8 +2141,8 @@
 
 /* Stats */
 .xs-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 8px;
 }
@@ -2154,6 +2154,8 @@
   padding: 4px;
   background: var(--surface);
   border-radius: 3px;
+  flex: 1 1 0;
+  min-width: 60px;
 }
 
 .xs-stat-label {
@@ -2308,6 +2310,157 @@
 .xs-tweet-link:hover {
   opacity: 1;
   text-decoration: underline;
+}
+
+/* Bot filter toggle */
+.xs-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.xs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.xs-toggle-input {
+  display: none;
+}
+
+.xs-toggle-slider {
+  position: relative;
+  width: 28px;
+  height: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.xs-toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 10px;
+  height: 10px;
+  background: var(--text-dim);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.xs-toggle-input:checked + .xs-toggle-slider {
+  background: rgba(20, 241, 149, 0.2);
+  border-color: #14F195;
+}
+
+.xs-toggle-input:checked + .xs-toggle-slider::after {
+  transform: translateX(14px);
+  background: #14F195;
+}
+
+.xs-toggle-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.xs-filter-info {
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+/* Stat dim sub-text */
+.xs-stat-dim {
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.xs-stat-bot .xs-stat-value {
+  color: #FF8844;
+}
+
+.xs-stat-dupe .xs-stat-value {
+  color: #9945FF;
+}
+
+/* Tweets count */
+.xs-tweets-count {
+  font-weight: 400;
+  color: var(--text-dim);
+  font-size: 0.6rem;
+}
+
+/* Bot / suspect / dupe tweet styles */
+.xs-tweet-bot {
+  opacity: 0.5;
+  border-color: rgba(255, 136, 68, 0.3) !important;
+}
+
+.xs-tweet-suspect {
+  border-color: rgba(255, 215, 0, 0.25) !important;
+}
+
+.xs-tweet-dupe {
+  opacity: 0.45;
+  border-style: dashed !important;
+}
+
+/* Bot badge */
+.xs-bot-badge {
+  font-size: 0.5rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.xs-bot-high {
+  background: rgba(255, 68, 68, 0.15);
+  color: #FF6644;
+}
+
+.xs-bot-mid {
+  background: rgba(255, 215, 0, 0.12);
+  color: #FFD700;
+}
+
+/* Dupe badge */
+.xs-dupe-badge {
+  font-size: 0.5rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(153, 69, 255, 0.12);
+  color: #9945FF;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Verified badge */
+.xs-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #1DA1F2;
+  color: #fff;
+  font-size: 0.45rem;
+  font-weight: 700;
+  margin-left: 3px;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 /* ============================================================
