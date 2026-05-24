@@ -15,7 +15,6 @@ type ChartMode = 'price' | 'mcap';
 
 const STORAGE_KEY = 'solanaterminal-live-charts';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
-const TOKEN_MINT = 'ERPGD6N8n8m3G1UN1H3fDCHF65g73EoKYWqETD4MBAGS';
 
 /* ------------------------------------------------------------------ */
 /*  LiveChartsPanel                                                    */
@@ -44,13 +43,11 @@ export class LiveChartsPanel extends Panel {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const saved: ChartTab[] = JSON.parse(raw);
-        if (Array.isArray(saved) && saved.length > 0) {
-          // Migration: remove any old default token tabs (e.g. SOLMON)
-          this.tabs = saved.filter(t => t.id !== 'token-default' || t.ca === TOKEN_MINT);
-          // Ensure current project token tab exists
-          if (!this.tabs.some(t => t.ca === TOKEN_MINT)) {
-            this.tabs.splice(1, 0, { id: 'token-default', label: 'BAGS / SOL', pairAddress: '', ca: TOKEN_MINT });
-          }
+        const migrated = Array.isArray(saved)
+          ? saved.filter(t => t.id !== 'token-default')
+          : [];
+        if (migrated.length > 0) {
+          this.tabs = migrated;
           this.activeTabId = this.tabs[0]!.id;
           this.saveToStorage();
           return;
@@ -58,10 +55,9 @@ export class LiveChartsPanel extends Panel {
       }
     } catch { /* ignore */ }
 
-    // Default: SOL + project token charts (pairAddress resolved async)
+    // Default: SOL chart (pairAddress resolved async)
     this.tabs = [
       { id: 'sol-default', label: 'SOL / USD', pairAddress: '', ca: SOL_MINT },
-      { id: 'token-default', label: 'BAGS / SOL', pairAddress: '', ca: TOKEN_MINT },
     ];
     this.activeTabId = 'sol-default';
   }

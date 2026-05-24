@@ -13,13 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/solanamonitor">𝕏 @solanamonitor</a> · CA: <code>ERPGD6N8n8m3G1UN1H3fDCHF65g73EoKYWqETD4MBAGS</code>
-</p>
-
-<p align="center">
-  <a href="https://bags.fm/ERPGD6N8n8m3G1UN1H3fDCHF65g73EoKYWqETD4MBAGS">
-    <img src="https://bags.fm/assets/images/bags-icon.png" alt="Bags.fm" width="20" height="20" /> View on Bags.fm
-  </a>
+  <a href="https://x.com/solanamonitor">𝕏 @solanamonitor</a>
 </p>
 
 <p align="center">
